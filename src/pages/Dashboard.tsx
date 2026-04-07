@@ -105,6 +105,9 @@ export default function Dashboard() {
       name: data.name,
       description: data.description,
       price: data.price,
+      ...(data.discountedPrice != null
+        ? { discountedPrice: data.discountedPrice }
+        : {}),
       mainCategory: data.mainCategoryName,
       subCategory: data.subCategoryName,
       thirdCategory: data.thirdSubCategoryName,

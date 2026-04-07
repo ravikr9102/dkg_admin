@@ -1,5 +1,9 @@
-import type { ApiCategoryMain } from "@/api/admins";
-import type { Category, SubCategory, ThirdSubCategory } from "@/types";
+import type {
+  ApiAdditionalCategoryNode,
+  ApiCategoryMain,
+  ApiCategoryTreeMain,
+} from "@/api/admins";
+import type { AdditionalCategory, Category, SubCategory, ThirdSubCategory } from "@/types";
 
 /** Normalize Mongo ids from JSON (string, or rare nested shapes) for reliable Select matching. */
 export function toIdString(value: unknown): string {
@@ -100,4 +104,69 @@ export function categorySelectOptions(mains: ApiCategoryMain[]) {
     }
   }
   return { mainOptions, subOptions, thirdOptions };
+}
+
+/** Breadcrumb options for picking a third category (parent = third name). */
+export function thirdCategoryBreadcrumbOptions(
+  tree: ApiCategoryTreeMain[]
+): { label: string; thirdName: string }[] {
+  const opts: { label: string; thirdName: string }[] = [];
+  for (const main of tree) {
+    for (const sub of main.subCategories ?? []) {
+      for (const third of sub.thirdCategories ?? []) {
+        opts.push({
+          label: `${main.name} › ${sub.name} › ${third.name}`,
+          thirdName: third.name,
+        });
+      }
+    }
+  }
+  return opts;
+}
+
+/** Flatten tree from GET /category-tree for additional category table. */
+export function flattenAdditionalCategoriesFromTree(
+  tree: ApiCategoryTreeMain[]
+): AdditionalCategory[] {
+  const rows: AdditionalCategory[] = [];
+
+  function walk(
+    nodes: ApiAdditionalCategoryNode[] | undefined,
+    ctx: { mainName: string; subName: string; thirdName: string },
+    immediateParentName: string
+  ) {
+    if (!nodes?.length) return;
+    for (const node of nodes) {
+      rows.push({
+        id: toIdString(node._id),
+        name: node.name,
+        slug: slugify(node.name),
+        parentName: immediateParentName,
+        parentModel:
+          (node.parentModel as "ThirdCategory" | "AdditionalCategory") ??
+          "ThirdCategory",
+        level: node.level ?? 4,
+        description: node.description,
+        mainCategoryName: ctx.mainName,
+        subCategoryName: ctx.subName,
+        thirdCategoryName: ctx.thirdName,
+        createdAt: node.createdAt ?? new Date().toISOString(),
+        updatedAt: node.updatedAt ?? node.createdAt ?? new Date().toISOString(),
+      });
+      if (node.children?.length) {
+        walk(node.children, ctx, node.name);
+      }
+    }
+  }
+
+  for (const main of tree) {
+    const mainName = main.name;
+    for (const sub of main.subCategories ?? []) {
+      const subName = sub.name;
+      for (const third of sub.thirdCategories ?? []) {
+        walk(third.additionalCategories, { mainName, subName, thirdName: third.name }, third.name);
+      }
+    }
+  }
+  return rows;
 }

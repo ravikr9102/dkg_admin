@@ -180,6 +180,7 @@ export const mockBlogs: Blog[] = [
   {
     id: '1', title: 'Top 10 Tech Gadgets for 2024', slug: 'top-10-tech-gadgets-2024',
     content: 'Discover the most innovative technology products of the year...', excerpt: 'A comprehensive guide to the best tech gadgets.',
+    category: 'General',
     coverImage: 'https://images.unsplash.com/photo-1468495244123-6c6c332eeece?w=400',
     author: 'John Admin', status: 'published', tags: ['technology', 'gadgets', 'reviews'],
     createdAt: '2024-11-01', updatedAt: '2024-11-15'
@@ -187,6 +188,7 @@ export const mockBlogs: Blog[] = [
   {
     id: '2', title: 'Summer Fashion Trends', slug: 'summer-fashion-trends',
     content: 'Stay stylish this summer with these trending fashion picks...', excerpt: 'Your guide to summer fashion.',
+    category: 'General',
     coverImage: 'https://images.unsplash.com/photo-1445205170230-053b83016050?w=400',
     author: 'Jane Admin', status: 'published', tags: ['fashion', 'summer', 'trends'],
     createdAt: '2024-10-20', updatedAt: '2024-11-01'
@@ -194,6 +196,7 @@ export const mockBlogs: Blog[] = [
   {
     id: '3', title: 'How to Choose the Perfect Laptop', slug: 'choose-perfect-laptop',
     content: 'A detailed guide on selecting the right laptop for your needs...', excerpt: 'Find your ideal laptop.',
+    category: 'General',
     coverImage: 'https://images.unsplash.com/photo-1496181133206-80ce9b88a853?w=400',
     author: 'John Admin', status: 'draft', tags: ['technology', 'laptops', 'guide'],
     createdAt: '2024-12-05', updatedAt: '2024-12-10'

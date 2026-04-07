@@ -19,9 +19,20 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { toast } from '@/hooks/use-toast';
-import { Category, SubCategory, ThirdSubCategory, Product, Blog, OrderStatus, UserRole } from '@/types';
+import {
+  AdditionalCategory,
+  Category,
+  SubCategory,
+  ThirdSubCategory,
+  Product,
+  Blog,
+  OrderStatus,
+  UserRole,
+} from '@/types';
 import { cn } from '@/lib/utils';
 import { Separator } from '@/components/ui/separator';
+import { CategoryBannerSingleField } from '@/components/modals/CategoryBannerSingleField';
+import { VenueImagesField } from '@/components/modals/VenueImagesField';
 import { toIdString } from '@/utils/categoryTree';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Card } from '@/components/ui/card';
@@ -49,7 +60,10 @@ export type ProductAddonForm = { name: string; isDefault: boolean };
 export type ProductModalSavePayload = {
   name: string;
   description: string;
+  /** MRP / list price (backend field `price`). */
   price: number;
+  /** Optional sale price (backend `discountedPrice`); must be less than `price`. */
+  discountedPrice?: number;
   featured: boolean;
   categoryId: string;
   subCategoryId: string;
@@ -120,7 +134,7 @@ export function Modal({
   );
 }
 
-// Category Modal
+// Category Modal (main category — name only; no banner image on backend)
 interface CategoryModalProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -130,14 +144,18 @@ interface CategoryModalProps {
 
 export function CategoryModal({ open, onOpenChange, category, onSave }: CategoryModalProps) {
   const [name, setName] = useState(category?.name || '');
-  const [description, setDescription] = useState(category?.description || '');
+
+  // Only sync when editing; keep draft if user closes/reopens Add without saving
+  useEffect(() => {
+    if (!open || !category) return;
+    setName(category.name || '');
+  }, [open, category]);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    onSave({ name, description, slug: name.toLowerCase().replace(/\s+/g, '-') });
+    onSave({ name, slug: name.toLowerCase().replace(/\s+/g, '-') });
     onOpenChange(false);
     setName('');
-    setDescription('');
   };
 
   return (
@@ -145,7 +163,7 @@ export function CategoryModal({ open, onOpenChange, category, onSave }: Category
       open={open}
       onOpenChange={onOpenChange}
       title={category ? 'Edit Category' : 'Add Category'}
-      description="Manage your product categories"
+      description="Main categories use POST /admins/addcategory (name only)."
     >
       <form onSubmit={handleSubmit} className="space-y-4">
         <div className="space-y-2">
@@ -156,16 +174,6 @@ export function CategoryModal({ open, onOpenChange, category, onSave }: Category
             onChange={(e) => setName(e.target.value)}
             placeholder="Category name"
             required
-          />
-        </div>
-        <div className="space-y-2">
-          <Label htmlFor="description">Description</Label>
-          <Textarea
-            id="description"
-            value={description}
-            onChange={(e) => setDescription(e.target.value)}
-            placeholder="Category description"
-            rows={3}
           />
         </div>
         <DialogFooter>
@@ -184,7 +192,7 @@ interface SubCategoryModalProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   subCategory?: SubCategory | null;
-  onSave: (data: Partial<SubCategory>) => void;
+  onSave: (data: Partial<SubCategory> & { bannerImage?: File | null }) => void;
   mainCategories: CategoryOption[];
 }
 
@@ -197,7 +205,14 @@ export function SubCategoryModal({
 }: SubCategoryModalProps) {
   const [name, setName] = useState(subCategory?.name || '');
   const [categoryId, setCategoryId] = useState(subCategory?.categoryId || '');
-  const [description, setDescription] = useState(subCategory?.description || '');
+  const [bannerFile, setBannerFile] = useState<File | null>(null);
+
+  useEffect(() => {
+    if (!open || !subCategory) return;
+    setName(subCategory.name || '');
+    setCategoryId(subCategory.categoryId || '');
+    setBannerFile(null);
+  }, [open, subCategory]);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -206,10 +221,15 @@ export function SubCategoryModal({
       name,
       categoryId,
       categoryName: category?.name,
-      description,
-      slug: name.toLowerCase().replace(/\s+/g, '-')
+      slug: name.toLowerCase().replace(/\s+/g, '-'),
+      bannerImage: bannerFile,
     });
     onOpenChange(false);
+    if (!subCategory) {
+      setName('');
+      setCategoryId('');
+      setBannerFile(null);
+    }
   };
 
   return (
@@ -244,16 +264,11 @@ export function SubCategoryModal({
             required
           />
         </div>
-        <div className="space-y-2">
-          <Label htmlFor="description">Description</Label>
-          <Textarea
-            id="description"
-            value={description}
-            onChange={(e) => setDescription(e.target.value)}
-            placeholder="Description"
-            rows={3}
-          />
-        </div>
+        <CategoryBannerSingleField
+          id="sub-category-banner"
+          file={bannerFile}
+          onChange={setBannerFile}
+        />
         <DialogFooter>
           <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
             Cancel
@@ -270,7 +285,7 @@ interface ThirdSubCategoryModalProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   thirdSubCategory?: ThirdSubCategory | null;
-  onSave: (data: Partial<ThirdSubCategory>) => void;
+  onSave: (data: Partial<ThirdSubCategory> & { bannerImage?: File | null }) => void;
   mainCategories: CategoryOption[];
   subCategories: SubCategoryOption[];
 }
@@ -286,9 +301,17 @@ export function ThirdSubCategoryModal({
   const [name, setName] = useState(thirdSubCategory?.name || '');
   const [categoryId, setCategoryId] = useState(thirdSubCategory?.categoryId || '');
   const [subCategoryId, setSubCategoryId] = useState(thirdSubCategory?.subCategoryId || '');
-  const [description, setDescription] = useState(thirdSubCategory?.description || '');
+  const [bannerFile, setBannerFile] = useState<File | null>(null);
 
   const filteredSubCategories = subCategories.filter(sub => sub.categoryId === categoryId);
+
+  useEffect(() => {
+    if (!open || !thirdSubCategory) return;
+    setName(thirdSubCategory.name || '');
+    setCategoryId(thirdSubCategory.categoryId || '');
+    setSubCategoryId(thirdSubCategory.subCategoryId || '');
+    setBannerFile(null);
+  }, [open, thirdSubCategory]);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -300,10 +323,16 @@ export function ThirdSubCategoryModal({
       categoryName: category?.name,
       subCategoryId,
       subCategoryName: subCategory?.name,
-      description,
-      slug: name.toLowerCase().replace(/\s+/g, '-')
+      slug: name.toLowerCase().replace(/\s+/g, '-'),
+      bannerImage: bannerFile,
     });
     onOpenChange(false);
+    if (!thirdSubCategory) {
+      setName('');
+      setCategoryId('');
+      setSubCategoryId('');
+      setBannerFile(null);
+    }
   };
 
   return (
@@ -349,16 +378,11 @@ export function ThirdSubCategoryModal({
             required
           />
         </div>
-        <div className="space-y-2">
-          <Label htmlFor="description">Description</Label>
-          <Textarea
-            id="description"
-            value={description}
-            onChange={(e) => setDescription(e.target.value)}
-            placeholder="Description"
-            rows={3}
-          />
-        </div>
+        <CategoryBannerSingleField
+          id="third-category-banner"
+          file={bannerFile}
+          onChange={setBannerFile}
+        />
         <DialogFooter>
           <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
             Cancel
@@ -370,10 +394,180 @@ export function ThirdSubCategoryModal({
   );
 }
 
+// Additional Category (under third or nested additional)
+interface AdditionalCategoryModalProps {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  additionalCategory?: AdditionalCategory | null;
+  onSave: (data: {
+    name: string;
+    parentName: string;
+    parentModel: 'ThirdCategory' | 'AdditionalCategory';
+    bannerImage?: File | null;
+  }) => void;
+  /** Parent = third: options with breadcrumb label, value = third category name */
+  thirdOptions: { label: string; thirdName: string }[];
+  /** Parent = additional: existing additional category names */
+  additionalParentNames: string[];
+}
+
+export function AdditionalCategoryModal({
+  open,
+  onOpenChange,
+  additionalCategory,
+  onSave,
+  thirdOptions,
+  additionalParentNames,
+}: AdditionalCategoryModalProps) {
+  const [parentModel, setParentModel] = useState<'ThirdCategory' | 'AdditionalCategory'>(
+    'ThirdCategory'
+  );
+  const [thirdName, setThirdName] = useState('');
+  const [additionalParentName, setAdditionalParentName] = useState('');
+  const [name, setName] = useState(additionalCategory?.name || '');
+  const [bannerFile, setBannerFile] = useState<File | null>(null);
+
+  useEffect(() => {
+    if (!open || !additionalCategory) return;
+    setName(additionalCategory.name || '');
+    setParentModel(additionalCategory.parentModel);
+    if (additionalCategory.parentModel === 'ThirdCategory') {
+      setThirdName(additionalCategory.parentName || '');
+      setAdditionalParentName('');
+    } else {
+      setAdditionalParentName(additionalCategory.parentName || '');
+      setThirdName('');
+    }
+    setBannerFile(null);
+  }, [open, additionalCategory]);
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    const parentName =
+      parentModel === 'ThirdCategory' ? thirdName : additionalParentName;
+    if (!parentName?.trim() || !name.trim()) {
+      toast({ title: 'Select parent and enter a name', variant: 'destructive' });
+      return;
+    }
+    onSave({
+      name: name.trim(),
+      parentName: parentName.trim(),
+      parentModel,
+      bannerImage: bannerFile,
+    });
+    onOpenChange(false);
+    if (!additionalCategory) {
+      setParentModel('ThirdCategory');
+      setThirdName('');
+      setAdditionalParentName('');
+      setName('');
+      setBannerFile(null);
+    }
+  };
+
+  return (
+    <Modal
+      open={open}
+      onOpenChange={onOpenChange}
+      title={additionalCategory ? 'Edit Additional Category' : 'Add Additional Category'}
+      description="Choose where it lives in the tree, then name it."
+    >
+      <form onSubmit={handleSubmit} className="space-y-4">
+        <div className="space-y-2">
+          <Label>Parent type</Label>
+          <Select
+            value={parentModel}
+            onValueChange={(v) =>
+              setParentModel(v as 'ThirdCategory' | 'AdditionalCategory')
+            }
+          >
+            <SelectTrigger>
+              <SelectValue placeholder="Parent type" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="ThirdCategory">Third sub-category</SelectItem>
+              <SelectItem value="AdditionalCategory">Additional category (nested)</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+        {parentModel === 'ThirdCategory' ? (
+          <div className="space-y-2">
+            <Label>Third sub-category</Label>
+            <Select value={thirdName} onValueChange={setThirdName} required>
+              <SelectTrigger>
+                <SelectValue placeholder="Select third sub-category" />
+              </SelectTrigger>
+              <SelectContent>
+                {thirdOptions.map((o) => (
+                  <SelectItem key={`${o.thirdName}-${o.label}`} value={o.thirdName}>
+                    {o.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        ) : (
+          <div className="space-y-2">
+            <Label>Parent additional category</Label>
+            <Select
+              value={additionalParentName}
+              onValueChange={setAdditionalParentName}
+              required
+              disabled={additionalParentNames.length === 0}
+            >
+              <SelectTrigger>
+                <SelectValue
+                  placeholder={
+                    additionalParentNames.length === 0
+                      ? 'Create one under a third category first'
+                      : 'Select parent'
+                  }
+                />
+              </SelectTrigger>
+              <SelectContent>
+                {additionalParentNames.map((n) => (
+                  <SelectItem key={n} value={n}>
+                    {n}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        )}
+        <div className="space-y-2">
+          <Label htmlFor="addcat-name">Name</Label>
+          <Input
+            id="addcat-name"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            placeholder="Additional category name"
+            required
+          />
+        </div>
+        <CategoryBannerSingleField
+          id="additional-category-banner"
+          file={bannerFile}
+          onChange={setBannerFile}
+        />
+        <DialogFooter>
+          <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
+            Cancel
+          </Button>
+          <Button type="submit">
+            {additionalCategory ? 'Save Changes' : 'Create'}
+          </Button>
+        </DialogFooter>
+      </form>
+    </Modal>
+  );
+}
+
 type ProductFormFields = {
   name: string;
   description: string;
   price: string;
+  /** Sale price optional; empty = no discount */
+  discountedPrice: string;
   categoryId: string;
   subCategoryId: string;
   thirdSubCategoryId: string;
@@ -401,6 +595,7 @@ function emptyProductForm(): ProductFormFields {
     name: '',
     description: '',
     price: '',
+    discountedPrice: '',
     categoryId: '',
     subCategoryId: '',
     thirdSubCategoryId: '',
@@ -454,11 +649,22 @@ export function ProductModal({
     idsEqual(third.subCategoryId, formData.subCategoryId)
   );
 
+  // Add flow: keep draft when dialog closes/reopens. View/edit: sync from `product` when set.
   useEffect(() => {
-    if (!open) return;
-    if (!product) {
-      setFormData(emptyProductForm());
-    }
+    if (!open || !product) return;
+    setFormData({
+      ...emptyProductForm(),
+      name: product.name ?? '',
+      description: product.description ?? '',
+      price: product.price != null ? String(product.price) : '',
+      discountedPrice: '',
+      categoryId: product.categoryId ? toIdString(product.categoryId) : '',
+      subCategoryId: product.subCategoryId ? toIdString(product.subCategoryId) : '',
+      thirdSubCategoryId: product.thirdSubCategoryId ? toIdString(product.thirdSubCategoryId) : '',
+      featured: Boolean(product.featured),
+      images: Array.isArray(product.images) ? [...product.images] : [],
+    });
+    setFieldErrors({});
   }, [open, product]);
 
   const chipReject = (msg: string) => toast({ title: msg, variant: 'destructive' });
@@ -483,7 +689,19 @@ export function ProductModal({
     if (!formData.description.trim()) errors.description = 'Description is required.';
     const priceNum = parseFloat(formData.price);
     if (!formData.price.trim() || Number.isNaN(priceNum) || priceNum <= 0) {
-      errors.price = 'Enter a valid price greater than 0.';
+      errors.price = 'Enter a valid MRP / list price greater than 0.';
+    }
+    let discountedPriceNum: number | undefined;
+    const discTrim = formData.discountedPrice.trim();
+    if (discTrim) {
+      const d = parseFloat(discTrim);
+      if (Number.isNaN(d) || d <= 0) {
+        errors.discountedPrice = 'Enter a valid sale price or leave blank.';
+      } else if (d >= priceNum) {
+        errors.discountedPrice = 'Sale price must be less than MRP.';
+      } else {
+        discountedPriceNum = d;
+      }
     }
     if (formData.images.length === 0) {
       errors.images = 'Add at least one image URL (https recommended).';
@@ -547,6 +765,7 @@ export function ProductModal({
       name: formData.name.trim(),
       description: formData.description.trim(),
       price: priceNum,
+      ...(discountedPriceNum != null ? { discountedPrice: discountedPriceNum } : {}),
       featured: formData.featured,
       categoryId: formData.categoryId,
       subCategoryId: formData.subCategoryId,
@@ -572,6 +791,10 @@ export function ProductModal({
       addons,
     });
     onOpenChange(false);
+    if (!product) {
+      setFormData(emptyProductForm());
+      setFieldErrors({});
+    }
   };
 
   const dis = !!product;
@@ -623,7 +846,7 @@ export function ProductModal({
               ) : null}
             </div>
             <div className="space-y-2">
-              <Label htmlFor="prod-price">Price</Label>
+              <Label htmlFor="prod-price">MRP / list price (₹)</Label>
               <Input
                 id="prod-price"
                 type="number"
@@ -636,6 +859,26 @@ export function ProductModal({
                 className={cn(fieldErrors.price && 'border-destructive')}
               />
               {fieldErrors.price ? <p className="text-sm text-destructive">{fieldErrors.price}</p> : null}
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="prod-sale-price">Sale price (₹) — optional</Label>
+              <Input
+                id="prod-sale-price"
+                type="number"
+                step="0.01"
+                min={0}
+                value={formData.discountedPrice}
+                onChange={(e) => setFormData({ ...formData, discountedPrice: e.target.value })}
+                placeholder="Leave blank if not discounted"
+                disabled={dis}
+                className={cn(fieldErrors.discountedPrice && 'border-destructive')}
+              />
+              <p className="text-xs text-muted-foreground">
+                Must be lower than MRP. Sent to API as <code className="text-xs">discountedPrice</code>.
+              </p>
+              {fieldErrors.discountedPrice ? (
+                <p className="text-sm text-destructive">{fieldErrors.discountedPrice}</p>
+              ) : null}
             </div>
             <div className="space-y-2">
               <Label>Tier</Label>
@@ -1214,31 +1457,58 @@ export function DeleteModal({ open, onOpenChange, title, description, onConfirm 
 }
 
 // Blog Modal
+export type BlogSavePayload = Partial<Blog> & { coverFile?: File | null };
+
 interface BlogModalProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   blog?: Blog | null;
-  onSave: (data: Partial<Blog>) => void;
+  onSave: (data: BlogSavePayload) => void;
 }
 
 export function BlogModal({ open, onOpenChange, blog, onSave }: BlogModalProps) {
   const [formData, setFormData] = useState({
-    title: blog?.title || '',
-    excerpt: blog?.excerpt || '',
-    content: blog?.content || '',
-    status: blog?.status || 'draft',
-    tags: blog?.tags?.join(', ') || '',
+    title: '',
+    excerpt: '',
+    content: '',
+    status: 'draft' as 'draft' | 'published',
+    tags: '',
+    category: 'Matrimony',
   });
+  const [coverFile, setCoverFile] = useState<File | null>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    setFormData({
+      title: blog?.title || '',
+      excerpt: blog?.excerpt || '',
+      content: blog?.content || '',
+      status: blog?.status || 'draft',
+      tags: blog?.tags?.join(', ') || '',
+      category: blog?.category || 'Matrimony',
+    });
+    setCoverFile(null);
+  }, [open, blog?.id]);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    if (formData.excerpt.length > 300) {
+      toast({ title: 'Excerpt must be 300 characters or less', variant: 'destructive' });
+      return;
+    }
+    if (!blog && !coverFile) {
+      toast({ title: 'Featured image is required', variant: 'destructive' });
+      return;
+    }
     onSave({
-      ...formData,
-      tags: formData.tags.split(',').map(t => t.trim()).filter(Boolean),
-      slug: formData.title.toLowerCase().replace(/\s+/g, '-'),
-      author: 'Admin',
+      title: formData.title,
+      excerpt: formData.excerpt,
+      content: formData.content,
+      status: formData.status,
+      category: formData.category,
+      tags: formData.tags.split(',').map((t) => t.trim()).filter(Boolean),
+      coverFile: coverFile ?? undefined,
     });
-    toast({ title: blog ? 'Blog updated' : 'Blog created' });
     onOpenChange(false);
   };
 
@@ -1258,13 +1528,42 @@ export function BlogModal({ open, onOpenChange, blog, onSave }: BlogModalProps) 
             required
           />
         </div>
+        <CategoryBannerSingleField
+          id="blog-featured-image"
+          file={coverFile}
+          onChange={setCoverFile}
+          label={
+            <>
+              Featured image {!blog && <span className="text-destructive">*</span>}
+            </>
+          }
+          description={
+            blog
+              ? 'Upload a new file to replace the current featured image, or leave unchanged.'
+              : 'Required for new posts. PNG, JPG, or WebP — drag & drop or browse.'
+          }
+          emptySubtext="Wide hero-style images work well on the guest blog (e.g. 1200×630)."
+          remotePreviewUrl={!coverFile && blog?.coverImage ? blog.coverImage : null}
+          remotePreviewCaption="Saved featured image"
+        />
         <div className="space-y-2">
-          <Label>Excerpt</Label>
+          <Label>Category</Label>
+          <Input
+            value={formData.category}
+            onChange={(e) => setFormData({ ...formData, category: e.target.value })}
+            placeholder="e.g. Matrimony, Weddings"
+            required
+          />
+        </div>
+        <div className="space-y-2">
+          <Label>Excerpt (max 300)</Label>
           <Textarea
             value={formData.excerpt}
             onChange={(e) => setFormData({ ...formData, excerpt: e.target.value })}
-            placeholder="Short description"
+            placeholder="Short description for listings and SEO"
             rows={2}
+            maxLength={300}
+            required
           />
         </div>
         <div className="space-y-2">
@@ -1272,8 +1571,8 @@ export function BlogModal({ open, onOpenChange, blog, onSave }: BlogModalProps) 
           <Textarea
             value={formData.content}
             onChange={(e) => setFormData({ ...formData, content: e.target.value })}
-            placeholder="Blog content"
-            rows={4}
+            placeholder="Blog body (paragraphs separated by blank lines; optional lines starting with ### for subheadings on the website)"
+            rows={8}
             required
           />
         </div>
@@ -1307,6 +1606,259 @@ export function BlogModal({ open, onOpenChange, blog, onSave }: BlogModalProps) 
             Cancel
           </Button>
           <Button type="submit">{blog ? 'Save Changes' : 'Create Blog'}</Button>
+        </DialogFooter>
+      </form>
+    </Modal>
+  );
+}
+
+// Venue Modal (create only — no edit/delete in admin UI)
+export type VenueSavePayload = {
+  name: string;
+  description: string;
+  address: string;
+  lat?: string;
+  lng?: string;
+  startingPrice: string;
+  typesOfVenues?: string;
+  facilities?: string;
+  accessibilityFeatures?: string;
+  restrictions?: string;
+  inHouseDecor?: boolean;
+  advanceBookingWeeks?: string;
+  capacityMin?: string;
+  capacityMax?: string;
+  imageFiles: File[];
+};
+
+interface VenueModalProps {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  onSave: (data: VenueSavePayload) => void;
+}
+
+export function VenueModal({ open, onOpenChange, onSave }: VenueModalProps) {
+  const [formData, setFormData] = useState({
+    name: '',
+    description: '',
+    address: '',
+    lat: '',
+    lng: '',
+    startingPrice: '',
+    typesOfVenues: '',
+    facilities: '',
+    accessibilityFeatures: '',
+    restrictions: '',
+    inHouseDecor: false,
+    advanceBookingWeeks: '',
+    capacityMin: '',
+    capacityMax: '',
+  });
+  const [imageFiles, setImageFiles] = useState<File[]>([]);
+
+  useEffect(() => {
+    if (!open) return;
+    setFormData({
+      name: '',
+      description: '',
+      address: '',
+      lat: '',
+      lng: '',
+      startingPrice: '',
+      typesOfVenues: '',
+      facilities: '',
+      accessibilityFeatures: '',
+      restrictions: '',
+      inHouseDecor: false,
+      advanceBookingWeeks: '',
+      capacityMin: '',
+      capacityMax: '',
+    });
+    setImageFiles([]);
+  }, [open]);
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    onSave({
+      name: formData.name,
+      description: formData.description,
+      address: formData.address,
+      lat: formData.lat,
+      lng: formData.lng,
+      startingPrice: formData.startingPrice,
+      typesOfVenues: formData.typesOfVenues,
+      facilities: formData.facilities,
+      accessibilityFeatures: formData.accessibilityFeatures,
+      restrictions: formData.restrictions,
+      inHouseDecor: formData.inHouseDecor,
+      advanceBookingWeeks: formData.advanceBookingWeeks,
+      capacityMin: formData.capacityMin,
+      capacityMax: formData.capacityMax,
+      imageFiles,
+    });
+  };
+
+  return (
+    <Modal
+      open={open}
+      onOpenChange={onOpenChange}
+      title="Add Venue"
+      contentClassName="max-w-3xl w-[min(100vw-1.5rem,48rem)]"
+    >
+      <form onSubmit={handleSubmit} className="space-y-4">
+        <div className="space-y-2">
+          <Label>Name</Label>
+          <Input
+            value={formData.name}
+            onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+            placeholder="Venue name"
+            required
+          />
+        </div>
+        <div className="space-y-2">
+          <Label>Address</Label>
+          <Textarea
+            value={formData.address}
+            onChange={(e) => setFormData({ ...formData, address: e.target.value })}
+            placeholder="Full address"
+            rows={2}
+            required
+          />
+        </div>
+        <div className="grid grid-cols-2 gap-4">
+          <div className="space-y-2">
+            <Label>Latitude (optional)</Label>
+            <Input
+              value={formData.lat}
+              onChange={(e) => setFormData({ ...formData, lat: e.target.value })}
+              placeholder="28.6139"
+            />
+          </div>
+          <div className="space-y-2">
+            <Label>Longitude (optional)</Label>
+            <Input
+              value={formData.lng}
+              onChange={(e) => setFormData({ ...formData, lng: e.target.value })}
+              placeholder="77.2090"
+            />
+          </div>
+        </div>
+        <div className="space-y-2">
+          <Label>Starting price (₹)</Label>
+          <Input
+            type="number"
+            min={0}
+            step={1}
+            value={formData.startingPrice}
+            onChange={(e) => setFormData({ ...formData, startingPrice: e.target.value })}
+            required
+          />
+        </div>
+        <div className="space-y-2">
+          <Label>Description</Label>
+          <Textarea
+            value={formData.description}
+            onChange={(e) => setFormData({ ...formData, description: e.target.value })}
+            placeholder="What makes this venue special"
+            rows={4}
+            required
+          />
+        </div>
+        <div className="grid grid-cols-2 gap-4">
+          <div className="space-y-2">
+            <Label>Venue types</Label>
+            <Input
+              value={formData.typesOfVenues}
+              onChange={(e) => setFormData({ ...formData, typesOfVenues: e.target.value })}
+              placeholder="Banquet, Garden, Rooftop"
+            />
+          </div>
+          <div className="space-y-2">
+            <Label>Facilities</Label>
+            <Input
+              value={formData.facilities}
+              onChange={(e) => setFormData({ ...formData, facilities: e.target.value })}
+              placeholder="Parking, Catering, Valet"
+            />
+          </div>
+        </div>
+        <div className="grid grid-cols-2 gap-4">
+          <div className="space-y-2">
+            <Label>Accessibility features</Label>
+            <Input
+              value={formData.accessibilityFeatures}
+              onChange={(e) =>
+                setFormData({ ...formData, accessibilityFeatures: e.target.value })
+              }
+              placeholder="Wheelchair access, Elevator, …"
+            />
+            <p className="text-xs text-muted-foreground">Comma-separated, same as guest detail.</p>
+          </div>
+          <div className="space-y-2">
+            <Label>Restrictions</Label>
+            <Input
+              value={formData.restrictions}
+              onChange={(e) => setFormData({ ...formData, restrictions: e.target.value })}
+              placeholder="No fireworks, Noise curfew, …"
+            />
+            <p className="text-xs text-muted-foreground">Comma-separated.</p>
+          </div>
+        </div>
+        <div className="rounded-md border border-border/60 p-4 space-y-3">
+          <Label className="text-base">Other information</Label>
+          <div className="flex items-center space-x-2">
+            <Checkbox
+              id="venue-in-house-decor"
+              checked={formData.inHouseDecor}
+              onCheckedChange={(checked) =>
+                setFormData({ ...formData, inHouseDecor: checked === true })
+              }
+            />
+            <Label htmlFor="venue-in-house-decor" className="font-normal cursor-pointer">
+              In-house decorating allowed
+            </Label>
+          </div>
+          <div className="space-y-2 max-w-xs">
+            <Label htmlFor="venue-advance-weeks">Advance booking (weeks, optional)</Label>
+            <Input
+              id="venue-advance-weeks"
+              type="number"
+              min={0}
+              step={1}
+              value={formData.advanceBookingWeeks}
+              onChange={(e) =>
+                setFormData({ ...formData, advanceBookingWeeks: e.target.value })
+              }
+              placeholder="e.g. 4"
+            />
+          </div>
+        </div>
+        <div className="grid grid-cols-2 gap-4">
+          <div className="space-y-2">
+            <Label>Capacity min (optional)</Label>
+            <Input
+              type="number"
+              min={0}
+              value={formData.capacityMin}
+              onChange={(e) => setFormData({ ...formData, capacityMin: e.target.value })}
+            />
+          </div>
+          <div className="space-y-2">
+            <Label>Capacity max (optional)</Label>
+            <Input
+              type="number"
+              min={0}
+              value={formData.capacityMax}
+              onChange={(e) => setFormData({ ...formData, capacityMax: e.target.value })}
+            />
+          </div>
+        </div>
+        <VenueImagesField files={imageFiles} onChange={setImageFiles} maxFiles={10} id="venue-images-upload" />
+        <DialogFooter className="pt-2 border-t border-border/60 mt-2">
+          <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
+            Cancel
+          </Button>
+          <Button type="submit">Create Venue</Button>
         </DialogFooter>
       </form>
     </Modal>

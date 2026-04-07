@@ -11,8 +11,10 @@ import Dashboard from "./pages/Dashboard";
 import Categories from "./pages/Categories";
 import SubCategories from "./pages/SubCategories";
 import ThirdSubCategories from "./pages/ThirdSubCategories";
+import AdditionalCategories from "./pages/AdditionalCategories";
 import Products from "./pages/Products";
 import Blogs from "./pages/Blogs";
+import Venues from "./pages/Venues";
 import Users from "./pages/Users";
 import Orders from "./pages/Orders";
 import Billing from "./pages/Billing";
@@ -40,10 +42,14 @@ const App = () => (
               <Route path="/sub-categories/add" element={<SubCategories />} />
               <Route path="/third-sub-categories" element={<ThirdSubCategories />} />
               <Route path="/third-sub-categories/add" element={<ThirdSubCategories />} />
+              <Route path="/additional-categories" element={<AdditionalCategories />} />
+              <Route path="/additional-categories/add" element={<AdditionalCategories />} />
               <Route path="/products" element={<Products />} />
               <Route path="/products/add" element={<Products />} />
               <Route path="/blogs" element={<Blogs />} />
               <Route path="/blogs/add" element={<Blogs />} />
+              <Route path="/venues" element={<Venues />} />
+              <Route path="/venues/add" element={<Venues />} />
               <Route path="/users" element={<Users />} />
               <Route path="/orders" element={<Orders />} />
               <Route path="/billing" element={<Billing />} />

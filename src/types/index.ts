@@ -46,6 +46,22 @@ export interface ThirdSubCategory {
   updatedAt: string;
 }
 
+/** Additional category (level 4+), parent is a third category or another additional category. */
+export interface AdditionalCategory {
+  id: string;
+  name: string;
+  slug: string;
+  parentName: string;
+  parentModel: 'ThirdCategory' | 'AdditionalCategory';
+  level: number;
+  description?: string;
+  mainCategoryName?: string;
+  subCategoryName?: string;
+  thirdCategoryName?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface Product {
   id: string;
   name: string;
@@ -74,6 +90,7 @@ export interface Blog {
   slug: string;
   content: string;
   excerpt: string;
+  category: string;
   coverImage?: string;
   author: string;
   status: 'published' | 'draft';

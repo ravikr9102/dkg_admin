@@ -73,13 +73,38 @@ export type ApiCategoryThird = {
   updatedAt?: string;
 };
 
+/** Nested additional categories under a third category (from GET /admins/category-tree). */
+export type ApiAdditionalCategoryNode = {
+  _id: string;
+  name: string;
+  description?: string;
+  parentCategory?: string;
+  parentModel?: "ThirdCategory" | "AdditionalCategory";
+  level?: number;
+  createdAt?: string;
+  updatedAt?: string;
+  children?: ApiAdditionalCategoryNode[];
+};
+
+export type ApiCategoryTreeThird = ApiCategoryThird & {
+  additionalCategories?: ApiAdditionalCategoryNode[];
+};
+
+export type ApiCategoryTreeSub = ApiCategorySub & {
+  thirdCategories?: ApiCategoryTreeThird[];
+};
+
+export type ApiCategoryTreeMain = ApiCategoryMain & {
+  subCategories?: ApiCategoryTreeSub[];
+};
+
 export async function getCategories() {
   return apiFetch<{ categories: ApiCategoryMain[] }>(`${A}/categories`, {
     method: "GET",
   });
 }
 
-export async function addMainCategory(body: { name: string; description?: string }) {
+export async function addMainCategory(body: { name: string }) {
   return apiFetch<{ category: ApiCategoryMain }>(`${A}/addcategory`, {
     method: "POST",
     body: JSON.stringify(body),
@@ -88,23 +113,59 @@ export async function addMainCategory(body: { name: string; description?: string
 
 export async function addSubCategory(body: {
   name: string;
-  description?: string;
   mainCategory: string;
+  bannerImage?: File | null;
 }) {
+  const fd = new FormData();
+  fd.append("name", body.name);
+  fd.append("mainCategory", body.mainCategory);
+  if (body.bannerImage) fd.append("bannerImage", body.bannerImage);
   return apiFetch<{ subCategory: ApiCategorySub }>(`${A}/addsubcategory`, {
     method: "POST",
-    body: JSON.stringify(body),
+    body: fd,
   });
 }
 
 export async function addThirdCategory(body: {
   name: string;
-  description?: string;
   subCategory: string;
+  bannerImage?: File | null;
 }) {
-  return apiFetch<{ thirdCategory: ApiCategoryThird }>(
-    `${A}/addthirdcategory`,
-    { method: "POST", body: JSON.stringify(body) }
+  const fd = new FormData();
+  fd.append("name", body.name);
+  fd.append("subCategory", body.subCategory);
+  if (body.bannerImage) fd.append("bannerImage", body.bannerImage);
+  return apiFetch<{ thirdCategory: ApiCategoryThird }>(`${A}/addthirdcategory`, {
+    method: "POST",
+    body: fd,
+  });
+}
+
+/** Full tree including nested additional categories (GET /admins/category-tree). */
+export async function getCategoryTree() {
+  return apiFetch<{ categoryTree: ApiCategoryTreeMain[] }>(`${A}/category-tree`, {
+    method: "GET",
+  });
+}
+
+/** POST /admins/create-additional-category — parentName is third or additional category name. */
+export async function createAdditionalCategory(body: {
+  name: string;
+  parentName: string;
+  parentModel: "ThirdCategory" | "AdditionalCategory";
+  bannerImage?: File | null;
+}) {
+  const fd = new FormData();
+  fd.append("name", body.name);
+  fd.append("parentName", body.parentName);
+  fd.append("parentModel", body.parentModel);
+  if (body.bannerImage) fd.append("bannerImage", body.bannerImage);
+  return apiFetch<{ success: boolean; message?: string }>(
+    `${A}/create-additional-category`,
+    {
+      method: "POST",
+      body: fd,
+    }
   );
 }
 
@@ -113,6 +174,7 @@ export type ApiProductDoc = Record<string, unknown> & {
   name: string;
   description?: string;
   price: number;
+  discountedPrice?: number | null;
   images?: string[];
   isFeatured?: boolean;
   tier?: string;
@@ -131,6 +193,7 @@ export type AddProductBody = {
   name: string;
   description: string;
   price: number;
+  discountedPrice?: number;
   mainCategory: string;
   subCategory: string;
   thirdCategory: string;
@@ -179,47 +242,139 @@ export async function toggleProductTier(productId: string, tier: "standard" | "p
 export type ApiBlogDoc = {
   _id: string;
   title: string;
+  slug: string;
   content: string;
+  excerpt: string;
+  featuredImage: string;
+  category: string;
   tags?: string[];
   published?: boolean;
   author?: { fullName?: string; email?: string };
   createdAt?: string;
   updatedAt?: string;
+  publishedAt?: string;
 };
 
 export async function getAdminBlogs() {
   return apiFetch<{ blogs: ApiBlogDoc[] }>(`${A}/blogs`, { method: "GET" });
 }
 
-export async function createBlog(body: {
+export type CreateBlogBody = {
   title: string;
   content: string;
+  excerpt: string;
+  category: string;
   tags?: string[];
   published?: boolean;
-}) {
-  return apiFetch<{ blog: ApiBlogDoc }>(`${A}/create-blog`, {
+  metaTitle?: string;
+  metaDescription?: string;
+  featuredImage: File;
+};
+
+export async function createBlog(body: CreateBlogBody) {
+  const fd = new FormData();
+  fd.append("title", body.title);
+  fd.append("content", body.content);
+  fd.append("excerpt", body.excerpt);
+  fd.append("category", body.category);
+  fd.append("tags", JSON.stringify(body.tags ?? []));
+  fd.append("published", body.published ? "true" : "false");
+  if (body.metaTitle) fd.append("metaTitle", body.metaTitle);
+  if (body.metaDescription) fd.append("metaDescription", body.metaDescription);
+  fd.append("featuredImage", body.featuredImage);
+  return apiFetch<{ blog: ApiBlogDoc; message?: string }>(`${A}/create-blog`, {
     method: "POST",
-    body: JSON.stringify(body),
+    body: fd,
   });
 }
 
-export async function updateBlog(
-  blogId: string,
-  body: Partial<{
-    title: string;
-    content: string;
-    tags: string[];
-    published: boolean;
-  }>
-) {
-  return apiFetch<{ blog: ApiBlogDoc }>(`${A}/edit-blog/${blogId}`, {
+export type UpdateBlogBody = Partial<{
+  title: string;
+  content: string;
+  excerpt: string;
+  category: string;
+  tags: string[];
+  published: boolean;
+  metaTitle: string;
+  metaDescription: string;
+  featuredImage: File;
+}>;
+
+export async function updateBlog(blogId: string, body: UpdateBlogBody) {
+  const fd = new FormData();
+  if (body.title != null) fd.append("title", body.title);
+  if (body.content != null) fd.append("content", body.content);
+  if (body.excerpt != null) fd.append("excerpt", body.excerpt);
+  if (body.category != null) fd.append("category", body.category);
+  if (body.tags != null) fd.append("tags", JSON.stringify(body.tags));
+  if (body.published != null) fd.append("published", body.published ? "true" : "false");
+  if (body.metaTitle != null) fd.append("metaTitle", body.metaTitle);
+  if (body.metaDescription != null) fd.append("metaDescription", body.metaDescription);
+  if (body.featuredImage instanceof File) fd.append("featuredImage", body.featuredImage);
+  return apiFetch<{ blog: ApiBlogDoc; message?: string }>(`${A}/edit-blog/${blogId}`, {
     method: "PUT",
-    body: JSON.stringify(body),
+    body: fd,
   });
 }
 
 export async function deleteBlog(blogId: string) {
   return apiFetch<{ message: string }>(`${A}/delete-blog/${blogId}`, {
     method: "DELETE",
+  });
+}
+
+export type ApiVenueDoc = {
+  _id: string;
+  name: string;
+  description?: string;
+  location?: { address?: string; lat?: number; lng?: number };
+  images?: string[];
+  startingPrice?: number;
+  typesOfVenues?: string[];
+  facilities?: string[];
+  createdAt?: string;
+  updatedAt?: string;
+};
+
+export async function getAdminVenues() {
+  return apiFetch<{ venues: ApiVenueDoc[] }>(`${A}/venues`, { method: "GET" });
+}
+
+export type CreateVenueBody = {
+  name: string;
+  description: string;
+  startingPrice: number;
+  location: { address: string; lat?: number; lng?: number };
+  typesOfVenues: string[];
+  facilities: string[];
+  accessibilityFeatures?: string[];
+  restrictions?: string[];
+  otherInformation?: { inHouseDecor?: boolean; advanceBookingWeeks?: number };
+  capacity?: { min?: number; max?: number };
+  imageFiles: File[];
+};
+
+export async function createVenue(body: CreateVenueBody) {
+  const fd = new FormData();
+  fd.append("name", body.name.trim());
+  fd.append("description", body.description.trim());
+  fd.append("startingPrice", String(body.startingPrice));
+  fd.append("location", JSON.stringify(body.location));
+  fd.append("typesOfVenues", JSON.stringify(body.typesOfVenues ?? []));
+  fd.append("facilities", JSON.stringify(body.facilities ?? []));
+  fd.append("accessibilityFeatures", JSON.stringify(body.accessibilityFeatures ?? []));
+  fd.append("restrictions", JSON.stringify(body.restrictions ?? []));
+  if (body.otherInformation != null) {
+    fd.append("otherInformation", JSON.stringify(body.otherInformation));
+  }
+  if (body.capacity != null) {
+    fd.append("capacity", JSON.stringify(body.capacity));
+  }
+  for (const f of body.imageFiles.slice(0, 10)) {
+    fd.append("images", f);
+  }
+  return apiFetch<{ message?: string; venue: ApiVenueDoc }>(`${A}/add-venue`, {
+    method: "POST",
+    body: fd,
   });
 }

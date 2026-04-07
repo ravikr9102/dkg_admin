@@ -18,6 +18,11 @@ export default defineConfig(({ mode }) => {
         changeOrigin: true,
         rewrite: (p) => p.replace(/^\/api/, ""),
       },
+      // Local disk uploads from backend (public/uploads) when not using Cloudinary URLs
+      "/uploads": {
+        target: proxyTarget,
+        changeOrigin: true,
+      },
     },
   },
   plugins: [react(), mode === "development" && componentTagger()].filter(Boolean),

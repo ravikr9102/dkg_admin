@@ -1,0 +1,240 @@
+import { useEffect, useState } from 'react';
+import { useLocation, useNavigate } from 'react-router-dom';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { Plus, Search, MapPin, Building2 } from 'lucide-react';
+import { DashboardLayout } from '@/components/layout/DashboardLayout';
+import { PageHeader, DataTableWrapper, EmptyState } from '@/components/shared/PageComponents';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Badge } from '@/components/ui/badge';
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table';
+import { VenueModal, type VenueSavePayload } from '@/components/modals/FormModals';
+import { createVenue, getAdminVenues, type ApiVenueDoc } from '@/api/admins';
+import { toast } from '@/hooks/use-toast';
+import { ApiError } from '@/lib/api';
+
+function rowFromApi(v: ApiVenueDoc) {
+  return {
+    id: String(v._id),
+    name: v.name,
+    address: v.location?.address?.trim() || '—',
+    startingPrice: typeof v.startingPrice === 'number' ? v.startingPrice : 0,
+    imageCount: Array.isArray(v.images) ? v.images.length : 0,
+    tags: [...(v.typesOfVenues ?? []), ...(v.facilities ?? [])].slice(0, 4),
+    createdAt: v.createdAt ? new Date(v.createdAt).toLocaleDateString() : '—',
+  };
+}
+
+export default function Venues() {
+  const qc = useQueryClient();
+  const location = useLocation();
+  const navigate = useNavigate();
+  const [search, setSearch] = useState('');
+  const [modalOpen, setModalOpen] = useState(false);
+
+  useEffect(() => {
+    if (location.pathname === '/venues/add') {
+      setModalOpen(true);
+      navigate('/venues', { replace: true });
+    }
+  }, [location.pathname, navigate]);
+
+  const { data: rawVenues = [], isLoading } = useQuery({
+    queryKey: ['admin', 'venues'],
+    queryFn: async () => (await getAdminVenues()).venues,
+  });
+
+  const rows = rawVenues.map(rowFromApi);
+
+  const createMut = useMutation({
+    mutationFn: createVenue,
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['admin', 'venues'] });
+      toast({ title: 'Venue created' });
+      setModalOpen(false);
+    },
+    onError: (err) => {
+      const msg = err instanceof ApiError ? err.message : 'Failed to create venue';
+      toast({ title: msg, variant: 'destructive' });
+    },
+  });
+
+  const filtered = rows.filter(
+    (r) =>
+      r.name.toLowerCase().includes(search.toLowerCase()) ||
+      r.address.toLowerCase().includes(search.toLowerCase())
+  );
+
+  const handleSave = (data: VenueSavePayload) => {
+    const typesOfVenues = (data.typesOfVenues ?? '')
+      .split(',')
+      .map((t) => t.trim())
+      .filter(Boolean);
+    const facilities = (data.facilities ?? '')
+      .split(',')
+      .map((t) => t.trim())
+      .filter(Boolean);
+    const accessibilityFeatures = (data.accessibilityFeatures ?? '')
+      .split(',')
+      .map((t) => t.trim())
+      .filter(Boolean);
+    const restrictions = (data.restrictions ?? '')
+      .split(',')
+      .map((t) => t.trim())
+      .filter(Boolean);
+    const weeksRaw =
+      data.advanceBookingWeeks != null && String(data.advanceBookingWeeks).trim() !== ''
+        ? Number(data.advanceBookingWeeks)
+        : undefined;
+    const advanceBookingWeeks =
+      weeksRaw != null && Number.isFinite(weeksRaw) && weeksRaw >= 0 ? weeksRaw : undefined;
+    const inHouseDecor = Boolean(data.inHouseDecor);
+    const otherInformation =
+      inHouseDecor || advanceBookingWeeks != null
+        ? {
+            ...(inHouseDecor ? { inHouseDecor: true } : {}),
+            ...(advanceBookingWeeks != null ? { advanceBookingWeeks } : {}),
+          }
+        : undefined;
+    const startingPrice = Number(data.startingPrice);
+    if (!data.name?.trim() || !data.description?.trim() || !data.address?.trim()) {
+      toast({ title: 'Name, address, and description are required', variant: 'destructive' });
+      return;
+    }
+    if (!Number.isFinite(startingPrice) || startingPrice < 0) {
+      toast({ title: 'Valid starting price is required', variant: 'destructive' });
+      return;
+    }
+    if (!data.imageFiles?.length) {
+      toast({ title: 'At least one image is required', variant: 'destructive' });
+      return;
+    }
+    const cMin = data.capacityMin != null && String(data.capacityMin).trim() !== '' ? Number(data.capacityMin) : undefined;
+    const cMax = data.capacityMax != null && String(data.capacityMax).trim() !== '' ? Number(data.capacityMax) : undefined;
+    const capacity =
+      cMin != null && cMax != null && Number.isFinite(cMin) && Number.isFinite(cMax)
+        ? { min: cMin, max: cMax }
+        : undefined;
+    createMut.mutate({
+      name: data.name.trim(),
+      description: data.description.trim(),
+      startingPrice,
+      location: {
+        address: data.address.trim(),
+        lat:
+          data.lat != null && String(data.lat).trim() !== ''
+            ? Number(data.lat)
+            : undefined,
+        lng:
+          data.lng != null && String(data.lng).trim() !== ''
+            ? Number(data.lng)
+            : undefined,
+      },
+      typesOfVenues,
+      facilities,
+      accessibilityFeatures,
+      restrictions,
+      ...(otherInformation != null ? { otherInformation } : {}),
+      capacity,
+      imageFiles: data.imageFiles,
+    });
+  };
+
+  return (
+    <DashboardLayout>
+      <PageHeader
+        title="Venues"
+        description="GET /admins/venues · POST /admins/add-venue (multipart, up to 10 images). No edit or delete in admin UI."
+      >
+        <Button
+          onClick={() => setModalOpen(true)}
+          disabled={createMut.isPending}
+        >
+          <Plus className="w-4 h-4" />
+          Add Venue
+        </Button>
+      </PageHeader>
+
+      <div className="flex items-center gap-4 mb-6">
+        <div className="relative flex-1 max-w-sm">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+          <Input
+            placeholder="Search by name or address..."
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="pl-9"
+          />
+        </div>
+      </div>
+
+      <DataTableWrapper>
+        {isLoading ? (
+          <div className="p-8 text-muted-foreground text-sm">Loading…</div>
+        ) : filtered.length === 0 ? (
+          <EmptyState
+            icon={<Building2 className="w-8 h-8 text-muted-foreground" />}
+            title="No venues found"
+            description="Create a venue with photos and pricing."
+            action={
+              <Button onClick={() => setModalOpen(true)}>
+                <Plus className="w-4 h-4" />
+                Add Venue
+              </Button>
+            }
+          />
+        ) : (
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Name</TableHead>
+                <TableHead>Location</TableHead>
+                <TableHead>From price</TableHead>
+                <TableHead>Images</TableHead>
+                <TableHead>Tags</TableHead>
+                <TableHead>Created</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {filtered.map((row) => (
+                <TableRow key={row.id} className="animate-fade-in">
+                  <TableCell>
+                    <div>
+                      <p className="font-medium">{row.name}</p>
+                    </div>
+                  </TableCell>
+                  <TableCell>
+                    <div className="flex items-start gap-1.5 text-sm text-muted-foreground max-w-xs">
+                      <MapPin className="w-3.5 h-3.5 mt-0.5 shrink-0" />
+                      <span className="line-clamp-2">{row.address}</span>
+                    </div>
+                  </TableCell>
+                  <TableCell className="text-sm">₹{row.startingPrice.toLocaleString()}</TableCell>
+                  <TableCell className="text-sm">{row.imageCount}</TableCell>
+                  <TableCell>
+                    <div className="flex gap-1 flex-wrap">
+                      {row.tags.map((tag, idx) => (
+                        <Badge key={idx} variant="secondary" className="text-xs">
+                          {tag}
+                        </Badge>
+                      ))}
+                    </div>
+                  </TableCell>
+                  <TableCell>{row.createdAt}</TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        )}
+      </DataTableWrapper>
+
+      <VenueModal open={modalOpen} onOpenChange={setModalOpen} onSave={handleSave} />
+    </DashboardLayout>
+  );
+}

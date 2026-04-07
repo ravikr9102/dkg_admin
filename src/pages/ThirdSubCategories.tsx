@@ -42,8 +42,11 @@ export default function ThirdSubCategories() {
   );
 
   const addMutation = useMutation({
-    mutationFn: (body: { name: string; description?: string; subCategory: string }) =>
-      addThirdCategory(body),
+    mutationFn: (body: {
+      name: string;
+      subCategory: string;
+      bannerImage?: File | null;
+    }) => addThirdCategory(body),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['admin', 'categories'] });
       toast({ title: 'Third sub-category created' });
@@ -54,7 +57,7 @@ export default function ThirdSubCategories() {
     },
   });
 
-  const handleSave = (data: Partial<ThirdSubCategory>) => {
+  const handleSave = (data: Partial<ThirdSubCategory> & { bannerImage?: File | null }) => {
     const subName =
       subOptions.find((s) => s.id === data.subCategoryId)?.name ?? data.subCategoryName;
     if (!subName || !data.name) {
@@ -63,8 +66,8 @@ export default function ThirdSubCategories() {
     }
     addMutation.mutate({
       name: data.name,
-      description: data.description,
       subCategory: subName,
+      bannerImage: data.bannerImage,
     });
     setModalOpen(false);
   };

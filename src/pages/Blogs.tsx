@@ -20,7 +20,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import { BlogModal, DeleteModal } from '@/components/modals/FormModals';
+import { BlogModal, DeleteModal, type BlogSavePayload } from '@/components/modals/FormModals';
 import { Blog } from '@/types';
 import { FileText } from 'lucide-react';
 import {
@@ -28,6 +28,7 @@ import {
   deleteBlog,
   getAdminBlogs,
   updateBlog,
+  type UpdateBlogBody,
 } from '@/api/admins';
 import { apiBlogToBlog } from '@/utils/mapEntity';
 import { toast } from '@/hooks/use-toast';
@@ -63,13 +64,7 @@ export default function Blogs() {
   });
 
   const updateMut = useMutation({
-    mutationFn: ({
-      id,
-      body,
-    }: {
-      id: string;
-      body: Parameters<typeof updateBlog>[1];
-    }) => updateBlog(id, body),
+    mutationFn: ({ id, body }: { id: string; body: UpdateBlogBody }) => updateBlog(id, body),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['admin', 'blogs'] });
       toast({ title: 'Blog updated' });
@@ -98,25 +93,42 @@ export default function Blogs() {
       blog.author.toLowerCase().includes(search.toLowerCase())
   );
 
-  const handleSave = (data: Partial<Blog>) => {
+  const handleSave = (data: BlogSavePayload) => {
     const published = data.status === 'published';
     const tags = data.tags ?? [];
+    const excerpt = (data.excerpt ?? '').slice(0, 300);
+    const category = (data.category ?? 'Matrimony').trim() || 'Matrimony';
+
     if (editBlog) {
-      updateMut.mutate({
-        id: editBlog.id,
-        body: {
-          title: data.title,
-          content: data.content,
-          tags,
-          published,
-        },
-      });
-    } else {
-      createMut.mutate({
-        title: data.title!,
-        content: data.content!,
+      const body: UpdateBlogBody = {
+        title: data.title,
+        content: data.content,
+        excerpt,
+        category,
         tags,
         published,
+      };
+      if (data.coverFile instanceof File) {
+        body.featuredImage = data.coverFile;
+      }
+      updateMut.mutate({ id: editBlog.id, body });
+    } else {
+      if (!(data.coverFile instanceof File)) {
+        toast({ title: 'Featured image is required', variant: 'destructive' });
+        return;
+      }
+      if (!data.title?.trim() || !data.content?.trim()) {
+        toast({ title: 'Title and content are required', variant: 'destructive' });
+        return;
+      }
+      createMut.mutate({
+        title: data.title!.trim(),
+        content: data.content!.trim(),
+        excerpt: excerpt || data.content!.trim().slice(0, 300),
+        category,
+        tags,
+        published,
+        featuredImage: data.coverFile,
       });
     }
     setEditBlog(null);
@@ -138,7 +150,7 @@ export default function Blogs() {
     <DashboardLayout>
       <PageHeader
         title="Blogs"
-        description="GET/POST /admins/blogs · PUT /admins/edit-blog/:id · DELETE /admins/delete-blog/:id"
+        description="GET /admins/blogs · POST /admins/create-blog (multipart) · PUT /admins/edit-blog/:id · DELETE /admins/delete-blog/:id"
       >
         <Button
           onClick={() => {
@@ -184,6 +196,7 @@ export default function Blogs() {
             <TableHeader>
               <TableRow>
                 <TableHead>Title</TableHead>
+                <TableHead>Category</TableHead>
                 <TableHead>Author</TableHead>
                 <TableHead>Status</TableHead>
                 <TableHead>Tags</TableHead>
@@ -203,6 +216,7 @@ export default function Blogs() {
                       </p>
                     </div>
                   </TableCell>
+                  <TableCell className="text-sm text-muted-foreground">{blog.category || '—'}</TableCell>
                   <TableCell>{blog.author}</TableCell>
                   <TableCell>
                     <Badge variant={blog.status as 'draft' | 'published'} className="capitalize">

@@ -34,7 +34,7 @@ export default function Categories() {
   const categories: Category[] = mainCategoriesToRows(rawCategories);
 
   const addMutation = useMutation({
-    mutationFn: (body: { name: string; description?: string }) => addMainCategory(body),
+    mutationFn: (body: { name: string }) => addMainCategory(body),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['admin', 'categories'] });
       toast({ title: 'Category created' });
@@ -50,10 +50,7 @@ export default function Categories() {
   );
 
   const handleSave = (data: Partial<Category>) => {
-    addMutation.mutate({
-      name: data.name!,
-      description: data.description,
-    });
+    addMutation.mutate({ name: data.name! });
     setModalOpen(false);
   };
 

@@ -17,6 +17,7 @@ import {
   Layers,
   Plus,
   List,
+  Building2,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/contexts/AuthContext';
@@ -38,9 +39,11 @@ const navItems: NavItem[] = [
       { label: 'Category List', href: '/categories', icon: List },
       { label: 'Sub-Category List', href: '/sub-categories', icon: List },
       { label: 'Third Sub-Category List', href: '/third-sub-categories', icon: List },
+      { label: 'Additional Category List', href: '/additional-categories', icon: List },
       { label: 'Add Category', href: '/categories/add', icon: Plus },
       { label: 'Add Sub-Category', href: '/sub-categories/add', icon: Plus },
       { label: 'Add Third Sub-Category', href: '/third-sub-categories/add', icon: Plus },
+      { label: 'Add Additional Category', href: '/additional-categories/add', icon: Plus },
     ],
   },
   {
@@ -59,6 +62,14 @@ const navItems: NavItem[] = [
       { label: 'Add Blog', href: '/blogs/add', icon: Plus },
     ],
   },
+  {
+    label: 'Venue',
+    icon: Building2,
+    children: [
+      { label: 'Venue List', href: '/venues', icon: List },
+      { label: 'Add Venue', href: '/venues/add', icon: Plus },
+    ],
+  },
   { label: 'Users', icon: Users, href: '/users' },
   { label: 'Orders', icon: ShoppingCart, href: '/orders' },
   { label: 'Billing System', icon: FileText, href: '/billing' },
@@ -67,7 +78,7 @@ const navItems: NavItem[] = [
 
 export function AppSidebar() {
   const [collapsed, setCollapsed] = useState(false);
-  const [expandedItems, setExpandedItems] = useState<string[]>(['Category', 'Product']);
+  const [expandedItems, setExpandedItems] = useState<string[]>(['Category', 'Product', 'Venue']);
   const [mobileOpen, setMobileOpen] = useState(false);
   const location = useLocation();
   const { user, logout } = useAuth();

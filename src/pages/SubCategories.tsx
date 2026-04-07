@@ -41,8 +41,11 @@ export default function SubCategories() {
   );
 
   const addMutation = useMutation({
-    mutationFn: (body: { name: string; description?: string; mainCategory: string }) =>
-      addSubCategory(body),
+    mutationFn: (body: {
+      name: string;
+      mainCategory: string;
+      bannerImage?: File | null;
+    }) => addSubCategory(body),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['admin', 'categories'] });
       toast({ title: 'Sub-category created' });
@@ -53,7 +56,7 @@ export default function SubCategories() {
     },
   });
 
-  const handleSave = (data: Partial<SubCategory>) => {
+  const handleSave = (data: Partial<SubCategory> & { bannerImage?: File | null }) => {
     const mainName =
       mainOptions.find((m) => m.id === data.categoryId)?.name ?? data.categoryName;
     if (!mainName || !data.name) {
@@ -62,8 +65,8 @@ export default function SubCategories() {
     }
     addMutation.mutate({
       name: data.name,
-      description: data.description,
       mainCategory: mainName,
+      bannerImage: data.bannerImage,
     });
     setModalOpen(false);
   };
@@ -114,7 +117,6 @@ export default function SubCategories() {
                 <TableHead>Name</TableHead>
                 <TableHead>Parent Category</TableHead>
                 <TableHead>Slug</TableHead>
-                <TableHead>Description</TableHead>
                 <TableHead>Updated</TableHead>
               </TableRow>
             </TableHeader>
@@ -124,9 +126,6 @@ export default function SubCategories() {
                   <TableCell className="font-medium">{subCategory.name}</TableCell>
                   <TableCell>{subCategory.categoryName}</TableCell>
                   <TableCell className="text-muted-foreground">{subCategory.slug}</TableCell>
-                  <TableCell className="max-w-[200px] truncate">
-                    {subCategory.description || '-'}
-                  </TableCell>
                   <TableCell>{new Date(subCategory.updatedAt).toLocaleDateString()}</TableCell>
                 </TableRow>
               ))}
