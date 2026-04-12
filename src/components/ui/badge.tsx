@@ -23,7 +23,7 @@ const badgeVariants = cva(
           "border-transparent bg-info/10 text-info",
         pending:
           "border-transparent bg-warning/10 text-warning",
-        processing:
+        confirmed:
           "border-transparent bg-info/10 text-info",
         shipped:
           "border-transparent bg-primary/10 text-primary",

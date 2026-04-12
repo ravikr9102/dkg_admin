@@ -170,3 +170,24 @@ export function flattenAdditionalCategoriesFromTree(
   }
   return rows;
 }
+
+/** Options for product “additional categories” dropdown (GET /admins/category-tree). */
+export type AdditionalCategorySelectOption = {
+  name: string;
+  label: string;
+  /** Third-level category name this additional row belongs under. */
+  thirdName: string;
+};
+
+export function additionalCategorySelectOptions(
+  tree: ApiCategoryTreeMain[]
+): AdditionalCategorySelectOption[] {
+  const rows = flattenAdditionalCategoriesFromTree(tree);
+  return rows
+    .map((r) => ({
+      name: r.name,
+      thirdName: r.thirdCategoryName,
+      label: `${r.mainCategoryName} › ${r.subCategoryName} › ${r.thirdCategoryName} › ${r.name}`,
+    }))
+    .sort((a, b) => a.label.localeCompare(b.label));
+}

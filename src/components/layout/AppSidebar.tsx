@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import {
   LayoutDashboard,
@@ -18,6 +18,7 @@ import {
   Plus,
   List,
   Building2,
+  ImageIcon,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/contexts/AuthContext';
@@ -46,6 +47,7 @@ const navItems: NavItem[] = [
       { label: 'Add Additional Category', href: '/additional-categories/add', icon: Plus },
     ],
   },
+  { label: 'Hero banners', icon: ImageIcon, href: '/hero-banners' },
   {
     label: 'Product',
     icon: Package,
@@ -81,8 +83,30 @@ export function AppSidebar() {
   const [expandedItems, setExpandedItems] = useState<string[]>(['Category', 'Product', 'Venue']);
   const [mobileOpen, setMobileOpen] = useState(false);
   const location = useLocation();
-  const { user, logout } = useAuth();
+  const { user, superAdminUser, isSuperAdmin, logout } = useAuth();
   const navigate = useNavigate();
+
+  const visibleNavItems = useMemo(() => {
+    if (!isSuperAdmin) return navItems;
+    return [
+      { label: 'Dashboard', icon: LayoutDashboard, href: '/dashboard' },
+      {
+        label: 'Product',
+        icon: Package,
+        children: [{ label: 'Product List', href: '/products', icon: List }],
+      },
+      {
+        label: 'Venue',
+        icon: Building2,
+        children: [{ label: 'Venue List', href: '/venues', icon: List }],
+      },
+      { label: 'Users', icon: Users, href: '/users' },
+    ] as NavItem[];
+  }, [isSuperAdmin]);
+
+  const displayName = isSuperAdmin ? superAdminUser?.fullName : user?.name;
+  const displayRole = isSuperAdmin ? 'Super admin' : user?.role?.replace('-', ' ');
+  const avatarLetter = (displayName || 'U').charAt(0);
 
   const toggleExpanded = (label: string) => {
     setExpandedItems((prev) =>
@@ -196,15 +220,15 @@ export function AppSidebar() {
           )}
         >
           <div className="flex items-center justify-center w-9 h-9 rounded-full bg-sidebar-primary text-sidebar-primary-foreground text-sm font-semibold">
-            {user?.name?.charAt(0) || 'U'}
+            {avatarLetter}
           </div>
           {!collapsed && (
             <div className="flex-1 min-w-0">
               <p className="text-sm font-medium text-sidebar-foreground truncate">
-                {user?.name}
+                {displayName}
               </p>
               <p className="text-xs text-sidebar-muted capitalize">
-                {user?.role?.replace('-', ' ')}
+                {displayRole}
               </p>
             </div>
           )}

@@ -30,15 +30,25 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { useAuth } from '@/contexts/AuthContext';
-import { mockOrders, mockAnalytics } from '@/data/mockData';
+import { getSuperAdminPendingAdmins } from '@/api/superadmins';
 import {
   ProductModal,
   OrderStatusModal,
   type ProductModalSavePayload,
 } from '@/components/modals/FormModals';
 import { OrderStatus } from '@/types';
-import { addProduct, getAdminProducts, getCategories } from '@/api/admins';
-import { categorySelectOptions } from '@/utils/categoryTree';
+import {
+  addProduct,
+  getAdminProducts,
+  getCategories,
+  getCategoryTree,
+  getAdminOrders,
+  updateAdminOrderStatus,
+  getAdminAnalytics,
+} from '@/api/admins';
+import { formatInr, ordersByStatusForCharts } from '@/utils/analyticsDisplay';
+import { apiAdminOrderToOrder } from '@/utils/mapOrder';
+import { additionalCategorySelectOptions, categorySelectOptions } from '@/utils/categoryTree';
 import { apiProductToProduct } from '@/utils/mapEntity';
 import { toast } from '@/hooks/use-toast';
 import { ApiError } from '@/lib/api';
@@ -59,7 +69,43 @@ import {
 
 const CHART_COLORS = ['hsl(239, 84%, 67%)', 'hsl(142, 76%, 36%)', 'hsl(38, 92%, 50%)', 'hsl(199, 89%, 48%)', 'hsl(0, 84%, 60%)'];
 
-export default function Dashboard() {
+function PlatformDashboard() {
+  const { superAdminUser } = useAuth();
+  const navigate = useNavigate();
+  const { data, isLoading } = useQuery({
+    queryKey: ['superadmin', 'pending-admins'],
+    queryFn: getSuperAdminPendingAdmins,
+  });
+  const pendingCount = data?.pendingAdmins?.length ?? 0;
+  const first = superAdminUser?.fullName?.split(' ')[0] ?? 'Super admin';
+
+  return (
+    <DashboardLayout>
+      <PageHeader
+        title={`Welcome, ${first}!`}
+        description="Platform view — use Users for vendor approvals, Products and Venues for catalog-wide management."
+      />
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-8">
+        <StatCard
+          title="Pending vendor approvals"
+          value={isLoading ? '—' : String(pendingCount)}
+          trend="neutral"
+          icon={<Users className="w-6 h-6" />}
+        />
+        <DataTableWrapper className="p-6 flex flex-col justify-center gap-2">
+          <p className="text-sm text-muted-foreground">
+            Vendor-scoped pages (orders, billing, analytics, category setup) are for vendor admins only.
+          </p>
+          <Button type="button" onClick={() => navigate('/users')}>
+            Open Users & approvals
+          </Button>
+        </DataTableWrapper>
+      </div>
+    </DashboardLayout>
+  );
+}
+
+function VendorDashboard() {
   const { user } = useAuth();
   const navigate = useNavigate();
   const qc = useQueryClient();
@@ -69,18 +115,40 @@ export default function Dashboard() {
     orderId: '',
     status: 'pending',
   });
-  const [orders, setOrders] = useState(mockOrders);
+  const { data: ordersData } = useQuery({
+    queryKey: ['admin', 'orders', 1, 50],
+    queryFn: async () => (await getAdminOrders({ page: 1, limit: 50 })).orders.map(apiAdminOrderToOrder),
+  });
+  const orders = ordersData ?? [];
 
   const { data: rawCategories = [] } = useQuery({
     queryKey: ['admin', 'categories'],
     queryFn: async () => (await getCategories()).categories,
   });
+  const { data: categoryTree = [] } = useQuery({
+    queryKey: ['admin', 'category-tree'],
+    queryFn: async () => (await getCategoryTree()).categoryTree,
+  });
   const { mainOptions, subOptions, thirdOptions } = categorySelectOptions(rawCategories);
+  const additionalCategoryOptions = useMemo(
+    () => (categoryTree.length ? additionalCategorySelectOptions(categoryTree) : []),
+    [categoryTree]
+  );
 
   const { data: rawProducts = [] } = useQuery({
     queryKey: ['admin', 'products'],
     queryFn: async () => (await getAdminProducts()).products,
   });
+
+  const { data: analytics, isLoading: analyticsLoading } = useQuery({
+    queryKey: ['admin', 'analytics'],
+    queryFn: getAdminAnalytics,
+  });
+
+  const ordersByStatusPie = useMemo(
+    () => (analytics ? ordersByStatusForCharts(analytics.ordersByStatus) : []),
+    [analytics]
+  );
 
   const products = useMemo(
     () => rawProducts.map((p) => apiProductToProduct(p)),
@@ -91,6 +159,7 @@ export default function Dashboard() {
     mutationFn: (body: Parameters<typeof addProduct>[0]) => addProduct(body),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['admin', 'products'] });
+      qc.invalidateQueries({ queryKey: ['admin', 'analytics'] });
       toast({ title: 'Product created' });
       setProductModalOpen(false);
     },
@@ -111,7 +180,7 @@ export default function Dashboard() {
       mainCategory: data.mainCategoryName,
       subCategory: data.subCategoryName,
       thirdCategory: data.thirdSubCategoryName,
-      images: data.images,
+      imageSlots: data.imageSlots,
       isFeatured: data.featured,
       tier: data.tier,
       tags: data.tags,
@@ -128,46 +197,67 @@ export default function Dashboard() {
       advanceBooking: data.advanceBooking || undefined,
       cancellationPolicy: data.cancellationPolicy || undefined,
       youtubeVideoLink: data.youtubeVideoLink || undefined,
-      addons: data.addons.length ? data.addons : undefined,
       inclusions: data.inclusions.length ? data.inclusions : ['—'],
       experiences: data.experiences.length ? data.experiences : ['—'],
       keyHighlights: data.keyHighlights.length ? data.keyHighlights : ['—'],
     });
   };
 
-  const handleUpdateOrderStatus = (orderId: string, status: OrderStatus) => {
-    setOrders(orders.map(order => 
-      order.id === orderId ? { ...order, status, updatedAt: new Date().toISOString() } : order
-    ));
+  const updateOrderStatusMut = useMutation({
+    mutationFn: ({ orderId, status }: { orderId: string; status: OrderStatus }) =>
+      updateAdminOrderStatus(orderId, status),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['admin', 'orders'] });
+      qc.invalidateQueries({ queryKey: ['admin', 'analytics'] });
+      toast({ title: 'Order status updated' });
+    },
+    onError: (err) => {
+      toast({
+        title: err instanceof ApiError ? err.message : 'Failed to update status',
+        variant: 'destructive',
+      });
+    },
+  });
+
+  const handleUpdateOrderStatus = async (orderId: string, status: OrderStatus) => {
+    await updateOrderStatusMut.mutateAsync({ orderId, status });
   };
 
+  const revG = analytics?.revenueGrowth ?? 0;
+  const ordG = analytics?.ordersGrowth ?? 0;
   const stats = [
     {
       title: 'Total Revenue',
-      value: `$${mockAnalytics.totalRevenue.toLocaleString()}`,
-      change: mockAnalytics.revenueGrowth,
-      trend: 'up' as const,
+      value: analytics ? formatInr(analytics.totalRevenue) : '—',
+      ...(revG !== 0
+        ? {
+            change: Math.abs(revG),
+            trend: (revG > 0 ? 'up' : 'down') as const,
+          }
+        : { trend: 'neutral' as const }),
       icon: <DollarSign className="w-6 h-6" />,
     },
     {
       title: 'Total Orders',
-      value: mockAnalytics.totalOrders.toLocaleString(),
-      change: mockAnalytics.ordersGrowth,
-      trend: 'up' as const,
+      value: analytics ? analytics.totalOrders.toLocaleString('en-IN') : '—',
+      ...(ordG !== 0
+        ? {
+            change: Math.abs(ordG),
+            trend: (ordG > 0 ? 'up' : 'down') as const,
+          }
+        : { trend: 'neutral' as const }),
       icon: <ShoppingCart className="w-6 h-6" />,
     },
     {
-      title: 'Total Products',
-      value: products.length.toLocaleString(),
-      change: 5.2,
-      trend: 'up' as const,
+      title: 'Your products',
+      value: products.length.toLocaleString('en-IN'),
+      trend: 'neutral' as const,
       icon: <Package className="w-6 h-6" />,
     },
     {
-      title: 'Total Users',
-      value: mockAnalytics.totalUsers.toLocaleString(),
-      change: 3.8,
-      trend: 'up' as const,
+      title: 'Total users (platform)',
+      value: analytics ? analytics.totalUsers.toLocaleString('en-IN') : '—',
+      trend: 'neutral' as const,
       icon: <Users className="w-6 h-6" />,
     },
   ];
@@ -222,9 +312,9 @@ export default function Dashboard() {
                     </div>
                   </TableCell>
                   <TableCell>{order.items.length} item(s)</TableCell>
-                  <TableCell className="font-semibold">${order.total.toLocaleString()}</TableCell>
+                  <TableCell className="font-semibold">₹{order.total.toLocaleString('en-IN')}</TableCell>
                   <TableCell>
-                    <Badge variant={order.status as any} className="capitalize">
+                    <Badge variant={order.status as never} className="capitalize">
                       {order.status}
                     </Badge>
                   </TableCell>
@@ -279,7 +369,7 @@ export default function Dashboard() {
                     <TableHead>Price</TableHead>
                     <TableHead>Stock</TableHead>
                     <TableHead>Status</TableHead>
-                    <TableHead className="text-right">Actions</TableHead>
+                    {/* <TableHead className="text-right">Actions</TableHead> */}
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -310,7 +400,7 @@ export default function Dashboard() {
                           {product.status}
                         </Badge>
                       </TableCell>
-                      <TableCell className="text-right">
+                      {/* <TableCell className="text-right">
                         <DropdownMenu>
                           <DropdownMenuTrigger asChild>
                             <Button variant="ghost" size="icon">
@@ -326,7 +416,7 @@ export default function Dashboard() {
                             <DropdownMenuItem className="text-destructive">Delete</DropdownMenuItem>
                           </DropdownMenuContent>
                         </DropdownMenu>
-                      </TableCell>
+                      </TableCell> */}
                     </TableRow>
                   ))}
                 </TableBody>
@@ -334,105 +424,130 @@ export default function Dashboard() {
             </DataTableWrapper>
           </div>
 
-          {/* Analytics Charts (mock — no admin analytics API yet) */}
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
-            {/* Sales Trend */}
-            <DataTableWrapper className="p-6">
-              <h3 className="text-lg font-semibold mb-4">Sales Trend</h3>
-              <div className="h-[300px]">
-                <ResponsiveContainer width="100%" height="100%">
-                  <LineChart data={mockAnalytics.salesTrend}>
-                    <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
-                    <XAxis dataKey="date" className="text-muted-foreground" tick={{ fontSize: 12 }} />
-                    <YAxis className="text-muted-foreground" tick={{ fontSize: 12 }} />
-                    <Tooltip 
-                      contentStyle={{ 
-                        backgroundColor: 'hsl(var(--card))',
-                        border: '1px solid hsl(var(--border))',
-                        borderRadius: '8px',
-                      }}
-                    />
-                    <Line 
-                      type="monotone" 
-                      dataKey="revenue" 
-                      stroke="hsl(239, 84%, 67%)" 
-                      strokeWidth={2}
-                      dot={{ fill: 'hsl(239, 84%, 67%)' }}
-                    />
-                  </LineChart>
-                </ResponsiveContainer>
-              </div>
-            </DataTableWrapper>
-
-            {/* Orders by Status */}
-            <DataTableWrapper className="p-6">
-              <h3 className="text-lg font-semibold mb-4">Orders by Status</h3>
-              <div className="h-[300px]">
-                <ResponsiveContainer width="100%" height="100%">
-                  <PieChart>
-                    <Pie
-                      data={mockAnalytics.ordersByStatus}
-                      cx="50%"
-                      cy="50%"
-                      innerRadius={60}
-                      outerRadius={100}
-                      paddingAngle={5}
-                      dataKey="count"
-                      nameKey="status"
-                      label={({ status, count }) => `${status}: ${count}`}
-                    >
-                      {mockAnalytics.ordersByStatus.map((entry, index) => (
-                        <Cell key={`cell-${index}`} fill={CHART_COLORS[index % CHART_COLORS.length]} />
-                      ))}
-                    </Pie>
-                    <Tooltip />
-                  </PieChart>
-                </ResponsiveContainer>
-              </div>
-            </DataTableWrapper>
-
-            {/* User Growth */}
-            <DataTableWrapper className="p-6">
-              <h3 className="text-lg font-semibold mb-4">User Growth</h3>
-              <div className="h-[300px]">
-                <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={mockAnalytics.userGrowth}>
-                    <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
-                    <XAxis dataKey="date" className="text-muted-foreground" tick={{ fontSize: 12 }} />
-                    <YAxis className="text-muted-foreground" tick={{ fontSize: 12 }} />
-                    <Tooltip 
-                      contentStyle={{ 
-                        backgroundColor: 'hsl(var(--card))',
-                        border: '1px solid hsl(var(--border))',
-                        borderRadius: '8px',
-                      }}
-                    />
-                    <Bar dataKey="users" fill="hsl(142, 76%, 36%)" radius={[4, 4, 0, 0]} />
-                  </BarChart>
-                </ResponsiveContainer>
-              </div>
-            </DataTableWrapper>
-
-            {/* Top Products */}
-            <DataTableWrapper className="p-6">
-              <h3 className="text-lg font-semibold mb-4">Top Products</h3>
-              <div className="space-y-4">
-                {mockAnalytics.topProducts.map((product, index) => (
-                  <div key={index} className="flex items-center justify-between p-3 rounded-lg bg-muted/50">
-                    <div className="flex items-center gap-3">
-                      <span className="flex items-center justify-center w-8 h-8 rounded-full bg-primary/10 text-primary text-sm font-semibold">
-                        {index + 1}
-                      </span>
-                      <div>
-                        <p className="font-medium">{product.name}</p>
-                        <p className="text-sm text-muted-foreground">{product.sales} sales</p>
-                      </div>
-                    </div>
-                    <p className="font-semibold text-success">${product.revenue.toLocaleString()}</p>
+          {/* Analytics (GET /admins/analytics) */}
+          <div className="mb-8 grid grid-cols-1 gap-6 lg:grid-cols-2">
+            {analyticsLoading ? (
+              <DataTableWrapper className="p-6 sm:col-span-2">
+                <p className="text-sm text-muted-foreground">Loading charts…</p>
+              </DataTableWrapper>
+            ) : analytics ? (
+              <>
+                <DataTableWrapper className="p-6">
+                  <h3 className="mb-4 text-lg font-semibold">Sales trend</h3>
+                  <div className="h-[300px]">
+                    {analytics.salesTrend.length === 0 ? (
+                      <p className="text-sm text-muted-foreground">No revenue in the last 6 months.</p>
+                    ) : (
+                      <ResponsiveContainer width="100%" height="100%">
+                        <LineChart data={analytics.salesTrend}>
+                          <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
+                          <XAxis dataKey="date" className="text-muted-foreground" tick={{ fontSize: 12 }} />
+                          <YAxis className="text-muted-foreground" tick={{ fontSize: 12 }} />
+                          <Tooltip
+                            contentStyle={{
+                              backgroundColor: 'hsl(var(--card))',
+                              border: '1px solid hsl(var(--border))',
+                              borderRadius: '8px',
+                            }}
+                            formatter={(v: number) => [formatInr(v), 'Revenue']}
+                          />
+                          <Line
+                            type="monotone"
+                            dataKey="revenue"
+                            stroke="hsl(239, 84%, 67%)"
+                            strokeWidth={2}
+                            dot={{ fill: 'hsl(239, 84%, 67%)' }}
+                          />
+                        </LineChart>
+                      </ResponsiveContainer>
+                    )}
                   </div>
-                ))}
-              </div>
-            </DataTableWrapper>
+                </DataTableWrapper>
+
+                <DataTableWrapper className="p-6">
+                  <h3 className="mb-4 text-lg font-semibold">Orders by status</h3>
+                  <div className="h-[300px]">
+                    {ordersByStatusPie.length === 0 ? (
+                      <p className="text-sm text-muted-foreground">No orders yet.</p>
+                    ) : (
+                      <ResponsiveContainer width="100%" height="100%">
+                        <PieChart>
+                          <Pie
+                            data={ordersByStatusPie}
+                            cx="50%"
+                            cy="50%"
+                            innerRadius={60}
+                            outerRadius={100}
+                            paddingAngle={5}
+                            dataKey="count"
+                            nameKey="status"
+                            label={({ status, count }) => `${status}: ${count}`}
+                          >
+                            {ordersByStatusPie.map((_, index) => (
+                              <Cell key={`cell-${index}`} fill={CHART_COLORS[index % CHART_COLORS.length]} />
+                            ))}
+                          </Pie>
+                          <Tooltip />
+                        </PieChart>
+                      </ResponsiveContainer>
+                    )}
+                  </div>
+                </DataTableWrapper>
+
+                <DataTableWrapper className="p-6">
+                  <h3 className="mb-4 text-lg font-semibold">User growth</h3>
+                  <div className="h-[300px]">
+                    {analytics.userGrowth.length === 0 ? (
+                      <p className="text-sm text-muted-foreground">No new users in this window.</p>
+                    ) : (
+                      <ResponsiveContainer width="100%" height="100%">
+                        <BarChart data={analytics.userGrowth}>
+                          <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
+                          <XAxis dataKey="date" className="text-muted-foreground" tick={{ fontSize: 12 }} />
+                          <YAxis className="text-muted-foreground" tick={{ fontSize: 12 }} />
+                          <Tooltip
+                            contentStyle={{
+                              backgroundColor: 'hsl(var(--card))',
+                              border: '1px solid hsl(var(--border))',
+                              borderRadius: '8px',
+                            }}
+                          />
+                          <Bar dataKey="users" fill="hsl(142, 76%, 36%)" radius={[4, 4, 0, 0]} />
+                        </BarChart>
+                      </ResponsiveContainer>
+                    )}
+                  </div>
+                </DataTableWrapper>
+
+                <DataTableWrapper className="p-6">
+                  <h3 className="mb-4 text-lg font-semibold">Top products</h3>
+                  <div className="space-y-4">
+                    {analytics.topProducts.length === 0 ? (
+                      <p className="text-sm text-muted-foreground">No sales yet.</p>
+                    ) : (
+                      analytics.topProducts.map((product, index) => (
+                        <div key={product.name} className="flex items-center justify-between rounded-lg bg-muted/50 p-3">
+                          <div className="flex items-center gap-3">
+                            <span className="flex h-8 w-8 items-center justify-center rounded-full bg-primary/10 text-sm font-semibold text-primary">
+                              {index + 1}
+                            </span>
+                            <div>
+                              <p className="font-medium">{product.name}</p>
+                              <p className="text-sm text-muted-foreground">{product.sales} units</p>
+                            </div>
+                          </div>
+                          <p className="font-semibold text-success">{formatInr(product.revenue)}</p>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </DataTableWrapper>
+              </>
+            ) : (
+              <DataTableWrapper className="p-6 sm:col-span-2">
+                <p className="text-sm text-muted-foreground">Analytics unavailable.</p>
+              </DataTableWrapper>
+            )}
           </div>
       </>
 
@@ -445,6 +560,7 @@ export default function Dashboard() {
         mainCategories={mainOptions}
         subCategories={subOptions}
         thirdSubCategories={thirdOptions}
+        additionalCategoryOptions={additionalCategoryOptions}
       />
 
       <OrderStatusModal
@@ -456,4 +572,10 @@ export default function Dashboard() {
       />
     </DashboardLayout>
   );
+}
+
+export default function Dashboard() {
+  const { isSuperAdmin } = useAuth();
+  if (isSuperAdmin) return <PlatformDashboard />;
+  return <VendorDashboard />;
 }

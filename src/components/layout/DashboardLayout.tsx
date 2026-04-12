@@ -18,7 +18,9 @@ interface DashboardLayoutProps {
 }
 
 export function DashboardLayout({ children }: DashboardLayoutProps) {
-  const { user } = useAuth();
+  const { user, superAdminUser, isSuperAdmin } = useAuth();
+  const displayName = isSuperAdmin ? superAdminUser?.fullName : user?.name;
+  const displayEmail = isSuperAdmin ? superAdminUser?.email : user?.email;
 
   return (
     <div className="flex min-h-screen w-full bg-background">
@@ -46,16 +48,16 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
               <DropdownMenuTrigger asChild>
                 <Button variant="ghost" size="icon" className="rounded-full">
                   <div className="flex items-center justify-center w-8 h-8 rounded-full bg-primary text-primary-foreground text-sm font-semibold">
-                    {user?.name?.charAt(0) || 'U'}
+                    {(displayName || 'U').charAt(0)}
                   </div>
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" className="w-56">
                 <DropdownMenuLabel>
                   <div className="flex flex-col">
-                    <span>{user?.name}</span>
+                    <span>{displayName}</span>
                     <span className="text-xs font-normal text-muted-foreground">
-                      {user?.email}
+                      {displayEmail}
                     </span>
                   </div>
                 </DropdownMenuLabel>

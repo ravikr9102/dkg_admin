@@ -16,6 +16,7 @@ import {
 import { AdditionalCategoryModal } from '@/components/modals/FormModals';
 import { GitBranch } from 'lucide-react';
 import { createAdditionalCategory, getCategoryTree } from '@/api/admins';
+import { useAuth } from '@/contexts/AuthContext';
 import {
   flattenAdditionalCategoriesFromTree,
   thirdCategoryBreadcrumbOptions,
@@ -24,6 +25,7 @@ import { toast } from '@/hooks/use-toast';
 import { ApiError } from '@/lib/api';
 
 export default function AdditionalCategories() {
+  const { isVendorAdmin } = useAuth();
   const qc = useQueryClient();
   const [search, setSearch] = useState('');
   const [modalOpen, setModalOpen] = useState(false);
@@ -31,6 +33,7 @@ export default function AdditionalCategories() {
   const { data: treeData, isLoading } = useQuery({
     queryKey: ['admin', 'category-tree'],
     queryFn: async () => (await getCategoryTree()).categoryTree,
+    enabled: isVendorAdmin,
   });
 
   const tree = treeData ?? [];

@@ -128,7 +128,7 @@ export const mockOrders: Order[] = [
   {
     id: '3', orderNumber: 'ORD-2024-003', userId: '6', userName: 'Emily Davis', userEmail: 'emily@example.com',
     items: [{ id: '4', productId: '6', productName: 'Elegant Summer Dress', quantity: 2, price: 89 }],
-    subtotal: 178, tax: 14, shipping: 5, total: 197, status: 'processing',
+    subtotal: 178, tax: 14, shipping: 5, total: 197, status: 'confirmed',
     shippingAddress: { street: '789 Pine Rd', city: 'Chicago', state: 'IL', zipCode: '60601', country: 'USA' },
     paymentMethod: 'Credit Card', createdAt: '2024-12-14', updatedAt: '2024-12-15'
   },

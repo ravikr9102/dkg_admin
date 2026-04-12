@@ -17,11 +17,13 @@ import { ThirdSubCategoryModal } from '@/components/modals/FormModals';
 import { ThirdSubCategory } from '@/types';
 import { GitBranch } from 'lucide-react';
 import { addThirdCategory, getCategories } from '@/api/admins';
+import { useAuth } from '@/contexts/AuthContext';
 import { categorySelectOptions, flattenSubsAndThirds } from '@/utils/categoryTree';
 import { toast } from '@/hooks/use-toast';
 import { ApiError } from '@/lib/api';
 
 export default function ThirdSubCategories() {
+  const { isVendorAdmin } = useAuth();
   const qc = useQueryClient();
   const [search, setSearch] = useState('');
   const [modalOpen, setModalOpen] = useState(false);
@@ -29,6 +31,7 @@ export default function ThirdSubCategories() {
   const { data: rawCategories = [], isLoading } = useQuery({
     queryKey: ['admin', 'categories'],
     queryFn: async () => (await getCategories()).categories,
+    enabled: isVendorAdmin,
   });
 
   const { mainOptions, subOptions } = categorySelectOptions(rawCategories);

@@ -1,5 +1,7 @@
-import { useState } from 'react';
-import { Search, MoreHorizontal, Eye, Edit } from 'lucide-react';
+import { useMemo, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { Search, MoreHorizontal, Eye, Edit, ChevronLeft, ChevronRight } from 'lucide-react';
 import { DashboardLayout } from '@/components/layout/DashboardLayout';
 import { PageHeader, DataTableWrapper, EmptyState } from '@/components/shared/PageComponents';
 import { Button } from '@/components/ui/button';
@@ -26,96 +28,182 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { mockOrders } from '@/data/mockData';
 import { OrderStatusModal } from '@/components/modals/FormModals';
 import { Order, OrderStatus } from '@/types';
 import { ShoppingCart } from 'lucide-react';
+import { getAdminOrders, updateAdminOrderStatus } from '@/api/admins';
+import { apiAdminOrderToOrder } from '@/utils/mapOrder';
+import { toast } from '@/hooks/use-toast';
+import { ApiError } from '@/lib/api';
+
+const PAGE_SIZE = 10;
+
+const STATUS_FILTERS: Array<OrderStatus | 'all'> = [
+  'all',
+  'pending',
+  'confirmed',
+  'shipped',
+  'delivered',
+  'cancelled',
+];
+
+/** Status chips at top (same order as backend enum). */
+const STATUS_CHIPS: OrderStatus[] = ['pending', 'confirmed', 'shipped', 'delivered', 'cancelled'];
 
 export default function Orders() {
-  const [orders, setOrders] = useState(mockOrders);
+  const navigate = useNavigate();
+  const qc = useQueryClient();
+  const [page, setPage] = useState(1);
   const [search, setSearch] = useState('');
-  const [statusFilter, setStatusFilter] = useState('all');
+  const [statusFilter, setStatusFilter] = useState<string>('all');
   const [statusModal, setStatusModal] = useState<{ open: boolean; order: Order | null }>({
     open: false,
     order: null,
   });
 
-  const filtered = orders.filter(order => {
-    const matchesSearch = order.orderNumber.toLowerCase().includes(search.toLowerCase()) ||
-      order.userName.toLowerCase().includes(search.toLowerCase()) ||
-      order.userEmail.toLowerCase().includes(search.toLowerCase());
-    const matchesStatus = statusFilter === 'all' || order.status === statusFilter;
-    return matchesSearch && matchesStatus;
+  const { data, isLoading, isError, error, refetch } = useQuery({
+    queryKey: ['admin', 'orders', page, PAGE_SIZE],
+    queryFn: async () => {
+      const res = await getAdminOrders({ page, limit: PAGE_SIZE });
+      return {
+        orders: res.orders.map(apiAdminOrderToOrder),
+        pagination: res.pagination,
+      };
+    },
   });
 
-  const handleStatusChange = (orderId: string, status: OrderStatus) => {
-    setOrders(orders.map(order =>
-      order.id === orderId ? { ...order, status, updatedAt: new Date().toISOString() } : order
-    ));
-  };
+  const orders = data?.orders ?? [];
+  const pageMeta = data?.pagination;
 
-  const getStatusCount = (status: OrderStatus) => orders.filter(o => o.status === status).length;
+  /** Counts for chip row — first 50 orders (same filter as list API). */
+  const { data: chipCounts } = useQuery({
+    queryKey: ['admin', 'orders', 'status-counts'],
+    queryFn: async () => {
+      const res = await getAdminOrders({ page: 1, limit: 50 });
+      const mapped = res.orders.map(apiAdminOrderToOrder);
+      const counts: Record<OrderStatus, number> = {
+        pending: 0,
+        confirmed: 0,
+        shipped: 0,
+        delivered: 0,
+        cancelled: 0,
+      };
+      for (const o of mapped) {
+        if (counts[o.status] != null) counts[o.status]++;
+      }
+      return counts;
+    },
+  });
+
+  const getStatusCount = (status: OrderStatus) => chipCounts?.[status] ?? 0;
+
+  const updateStatusMut = useMutation({
+    mutationFn: ({ orderId, status }: { orderId: string; status: OrderStatus }) =>
+      updateAdminOrderStatus(orderId, status),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['admin', 'orders'] });
+      qc.invalidateQueries({ queryKey: ['admin', 'analytics'] });
+      toast({ title: 'Order status updated' });
+    },
+    onError: (err) => {
+      toast({
+        title: err instanceof ApiError ? err.message : 'Failed to update status',
+        variant: 'destructive',
+      });
+    },
+  });
+
+  const filtered = useMemo(() => {
+    return orders.filter((order) => {
+      const q = search.toLowerCase();
+      const matchesSearch =
+        order.orderNumber.toLowerCase().includes(q) ||
+        order.userName.toLowerCase().includes(q) ||
+        order.userEmail.toLowerCase().includes(q);
+      const matchesStatus = statusFilter === 'all' || order.status === statusFilter;
+      return matchesSearch && matchesStatus;
+    });
+  }, [orders, search, statusFilter]);
+
+  const handleStatusSave = async (orderId: string, status: OrderStatus) => {
+    await updateStatusMut.mutateAsync({ orderId, status });
+  };
 
   return (
     <DashboardLayout>
       <PageHeader
         title="Orders"
-        description="Manage customer orders and track fulfillment"
+        description="GET /admins/orders · PUT /admins/orders/:orderId/status — orders that include your products"
       />
 
-      {/* Quick Stats */}
-      <div className="grid grid-cols-2 sm:grid-cols-5 gap-4 mb-6">
-        {(['pending', 'processing', 'shipped', 'delivered', 'cancelled'] as OrderStatus[]).map((status) => (
-          <div
-            key={status}
-            className={`p-4 rounded-xl border cursor-pointer transition-all ${
-              statusFilter === status 
-                ? 'border-primary bg-primary/5' 
-                : 'border-border hover:border-primary/50'
-            }`}
-            onClick={() => setStatusFilter(statusFilter === status ? 'all' : status)}
-          >
-            <Badge variant={status as any} className="capitalize mb-2">
-              {status}
-            </Badge>
-            <p className="text-2xl font-bold">{getStatusCount(status)}</p>
-          </div>
-        ))}
+      {isError ? (
+        <div className="mb-4 rounded-lg border border-destructive/50 bg-destructive/10 px-4 py-3 text-sm">
+          {error instanceof ApiError ? error.message : 'Failed to load orders.'}{' '}
+          <Button variant="link" className="h-auto p-0" onClick={() => refetch()}>
+            Retry
+          </Button>
+        </div>
+      ) : null}
+
+      {/* Quick status chips — tap to filter (same pattern as before API wiring) */}
+      <div className="mb-6 space-y-2">
+        <div className="grid grid-cols-2 gap-4 sm:grid-cols-5">
+          {STATUS_CHIPS.map((status) => (
+            <button
+              key={status}
+              type="button"
+              className={`rounded-xl border p-4 text-left transition-all ${
+                statusFilter === status
+                  ? 'border-primary bg-primary/5'
+                  : 'border-border hover:border-primary/50'
+              }`}
+              onClick={() => setStatusFilter(statusFilter === status ? 'all' : status)}
+            >
+              <Badge variant={status as never} className="mb-2 capitalize">
+                {status}
+              </Badge>
+              <p className="text-2xl font-bold">{getStatusCount(status)}</p>
+            </button>
+          ))}
+        </div>
+        <p className="text-xs text-muted-foreground">
+          Counts reflect up to your 50 most recent orders. The table is paginated separately.
+        </p>
       </div>
 
-      {/* Filters */}
-      <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4 mb-6">
-        <div className="relative flex-1 max-w-sm">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+      {/* Filters — search/filters apply to the current page of results */}
+      <div className="mb-6 flex flex-col items-start gap-4 sm:flex-row sm:items-center">
+        <div className="relative max-w-sm flex-1">
+          <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
           <Input
-            placeholder="Search orders..."
+            placeholder="Search this page…"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             className="pl-9"
           />
         </div>
         <Select value={statusFilter} onValueChange={setStatusFilter}>
-          <SelectTrigger className="w-[160px]">
+          <SelectTrigger className="w-[180px]">
             <SelectValue placeholder="All Status" />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="all">All Status</SelectItem>
-            <SelectItem value="pending">Pending</SelectItem>
-            <SelectItem value="processing">Processing</SelectItem>
-            <SelectItem value="shipped">Shipped</SelectItem>
-            <SelectItem value="delivered">Delivered</SelectItem>
-            <SelectItem value="cancelled">Cancelled</SelectItem>
+            {STATUS_FILTERS.map((s) => (
+              <SelectItem key={s} value={s}>
+                {s === 'all' ? 'All status' : s.charAt(0).toUpperCase() + s.slice(1)}
+              </SelectItem>
+            ))}
           </SelectContent>
         </Select>
       </div>
 
-      {/* Table */}
       <DataTableWrapper>
-        {filtered.length === 0 ? (
+        {isLoading ? (
+          <p className="p-8 text-center text-sm text-muted-foreground">Loading orders…</p>
+        ) : filtered.length === 0 ? (
           <EmptyState
-            icon={<ShoppingCart className="w-8 h-8 text-muted-foreground" />}
+            icon={<ShoppingCart className="h-8 w-8 text-muted-foreground" />}
             title="No orders found"
-            description="No orders match your search criteria."
+            description="No orders match your filters on this page, or there are no orders with your products yet."
           />
         ) : (
           <Table>
@@ -125,7 +213,7 @@ export default function Orders() {
                 <TableHead>Customer</TableHead>
                 <TableHead>Items</TableHead>
                 <TableHead>Total</TableHead>
-                <TableHead>Payment</TableHead>
+                {/* <TableHead>Payment</TableHead> */}
                 <TableHead>Status</TableHead>
                 <TableHead>Date</TableHead>
                 <TableHead className="text-right">Actions</TableHead>
@@ -144,21 +232,21 @@ export default function Orders() {
                   <TableCell>
                     <div className="space-y-1">
                       {order.items.slice(0, 2).map((item, idx) => (
-                        <p key={idx} className="text-sm">
-                          {item.quantity}x {item.productName}
+                        <p key={item.id ?? idx} className="text-sm">
+                          {item.quantity}× {item.productName}
                         </p>
                       ))}
                       {order.items.length > 2 && (
-                        <p className="text-sm text-muted-foreground">
-                          +{order.items.length - 2} more
-                        </p>
+                        <p className="text-sm text-muted-foreground">+{order.items.length - 2} more</p>
                       )}
                     </div>
                   </TableCell>
-                  <TableCell className="font-semibold">${order.total.toLocaleString()}</TableCell>
-                  <TableCell>{order.paymentMethod}</TableCell>
+                  <TableCell className="font-semibold">
+                    ₹{order.total.toLocaleString('en-IN')}
+                  </TableCell>
+                  {/* <TableCell>{order.paymentMethod}</TableCell> */}
                   <TableCell>
-                    <Badge variant={order.status as any} className="capitalize">
+                    <Badge variant={order.status as never} className="capitalize">
                       {order.status}
                     </Badge>
                   </TableCell>
@@ -167,17 +255,17 @@ export default function Orders() {
                     <DropdownMenu>
                       <DropdownMenuTrigger asChild>
                         <Button variant="ghost" size="icon">
-                          <MoreHorizontal className="w-4 h-4" />
+                          <MoreHorizontal className="h-4 w-4" />
                         </Button>
                       </DropdownMenuTrigger>
                       <DropdownMenuContent align="end">
-                        <DropdownMenuItem>
-                          <Eye className="w-4 h-4 mr-2" />
-                          View Details
+                        <DropdownMenuItem onClick={() => navigate(`/orders/${order.id}`)}>
+                          <Eye className="mr-2 h-4 w-4" />
+                          View details
                         </DropdownMenuItem>
                         <DropdownMenuItem onClick={() => setStatusModal({ open: true, order })}>
-                          <Edit className="w-4 h-4 mr-2" />
-                          Update Status
+                          <Edit className="mr-2 h-4 w-4" />
+                          Update status
                         </DropdownMenuItem>
                       </DropdownMenuContent>
                     </DropdownMenu>
@@ -189,16 +277,45 @@ export default function Orders() {
         )}
       </DataTableWrapper>
 
-      {/* Status Modal */}
-      {statusModal.order && (
+      {pageMeta && pageMeta.totalPages > 1 ? (
+        <div className="mt-6 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+          <p className="text-sm text-muted-foreground">
+            Page {pageMeta.currentPage} of {pageMeta.totalPages} · {pageMeta.totalOrders} orders total
+          </p>
+          <div className="flex items-center gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              disabled={!pageMeta.hasPrev || isLoading}
+              onClick={() => setPage((p) => Math.max(1, p - 1))}
+            >
+              <ChevronLeft className="h-4 w-4" />
+              Previous
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              disabled={!pageMeta.hasNext || isLoading}
+              onClick={() => setPage((p) => p + 1)}
+            >
+              Next
+              <ChevronRight className="h-4 w-4" />
+            </Button>
+          </div>
+        </div>
+      ) : null}
+
+      {statusModal.order ? (
         <OrderStatusModal
           open={statusModal.open}
           onOpenChange={(open) => setStatusModal({ ...statusModal, open })}
           orderId={statusModal.order.id}
           currentStatus={statusModal.order.status}
-          onSave={handleStatusChange}
+          onSave={handleStatusSave}
         />
-      )}
+      ) : null}
     </DashboardLayout>
   );
 }

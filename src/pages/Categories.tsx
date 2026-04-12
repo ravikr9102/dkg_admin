@@ -17,11 +17,13 @@ import { CategoryModal } from '@/components/modals/FormModals';
 import { Category } from '@/types';
 import { FolderTree } from 'lucide-react';
 import { addMainCategory, getCategories } from '@/api/admins';
+import { useAuth } from '@/contexts/AuthContext';
 import { mainCategoriesToRows } from '@/utils/categoryTree';
 import { toast } from '@/hooks/use-toast';
 import { ApiError } from '@/lib/api';
 
 export default function Categories() {
+  const { isVendorAdmin } = useAuth();
   const qc = useQueryClient();
   const [search, setSearch] = useState('');
   const [modalOpen, setModalOpen] = useState(false);
@@ -29,6 +31,7 @@ export default function Categories() {
   const { data: rawCategories = [], isLoading } = useQuery({
     queryKey: ['admin', 'categories'],
     queryFn: async () => (await getCategories()).categories,
+    enabled: isVendorAdmin,
   });
 
   const categories: Category[] = mainCategoriesToRows(rawCategories);

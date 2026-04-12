@@ -1,4 +1,4 @@
-import { ReactNode, useEffect, useState } from 'react';
+import { ReactNode, useEffect, useMemo, useState } from 'react';
 import {
   Dialog,
   DialogContent,
@@ -33,11 +33,11 @@ import { cn } from '@/lib/utils';
 import { Separator } from '@/components/ui/separator';
 import { CategoryBannerSingleField } from '@/components/modals/CategoryBannerSingleField';
 import { VenueImagesField } from '@/components/modals/VenueImagesField';
-import { toIdString } from '@/utils/categoryTree';
+import { toIdString, type AdditionalCategorySelectOption } from '@/utils/categoryTree';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Card } from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
 import {
-  Boxes,
   ImageIcon,
   Layers,
   ListChecks,
@@ -45,18 +45,25 @@ import {
   Package,
   Trash2,
   Wrench,
+  X,
 } from 'lucide-react';
 import { FormSectionCard } from '@/components/product-form/FormSectionCard';
 import { ChipListField } from '@/components/product-form/ChipListField';
-import { ImageDropzoneField } from '@/components/product-form/ImageDropzoneField';
+import {
+  CustomizationAddonsPanel,
+  type CustomizationSectionFormRow,
+} from '@/components/product-form/CustomizationAddonsPanel';
+import { ImageDropzoneField, type ProductImageItem } from '@/components/product-form/ImageDropzoneField';
+import type { ProductImageSlot } from '@/api/admins';
 import { sanitizeMongoNamedRef } from '@/utils/productForm';
 
 function idsEqual(a: string, b: string) {
   return toIdString(a) === toIdString(b);
 }
 
-export type ProductAddonForm = { name: string; isDefault: boolean };
+export type { CustomizationSectionFormRow };
 
+/** Saved payload shape for POST /admins/addproducts — nested sections match the Product model. */
 export type ProductModalSavePayload = {
   name: string;
   description: string;
@@ -71,14 +78,18 @@ export type ProductModalSavePayload = {
   mainCategoryName: string;
   subCategoryName: string;
   thirdSubCategoryName: string;
-  images: string[];
+  imageSlots: ProductImageSlot[];
   tier: 'standard' | 'premium';
   tags: string[];
   inclusions: string[];
   experiences: string[];
   keyHighlights: string[];
   additionalCategories: string[];
-  customizationSections: string[];
+  customizationSections: Array<{
+    name: string;
+    priority: number;
+    addons: { name: string }[];
+  }>;
   serviceableAreas: { city: string; districts: string[] }[];
   location: string;
   setupDuration: string;
@@ -86,7 +97,6 @@ export type ProductModalSavePayload = {
   advanceBooking: string;
   cancellationPolicy: string;
   youtubeVideoLink: string;
-  addons: ProductAddonForm[];
 };
 
 export type CategoryOption = { id: string; name: string };
@@ -573,10 +583,10 @@ type ProductFormFields = {
   thirdSubCategoryId: string;
   featured: boolean;
   tier: string;
-  images: string[];
+  imageItems: ProductImageItem[];
   tags: string[];
   additionalCategories: string[];
-  customizationSections: string[];
+  customizationSections: CustomizationSectionFormRow[];
   serviceableAreas: { city: string; districts: string[] }[];
   location: string;
   setupDuration: string;
@@ -584,7 +594,6 @@ type ProductFormFields = {
   advanceBooking: string;
   cancellationPolicy: string;
   youtubeVideoLink: string;
-  addons: ProductAddonForm[];
   inclusions: string[];
   experiences: string[];
   keyHighlights: string[];
@@ -601,7 +610,7 @@ function emptyProductForm(): ProductFormFields {
     thirdSubCategoryId: '',
     featured: false,
     tier: 'standard',
-    images: [],
+    imageItems: [],
     tags: [],
     additionalCategories: [],
     customizationSections: [],
@@ -612,7 +621,6 @@ function emptyProductForm(): ProductFormFields {
     advanceBooking: '',
     cancellationPolicy: '',
     youtubeVideoLink: '',
-    addons: [],
     inclusions: [],
     experiences: [],
     keyHighlights: [],
@@ -628,6 +636,8 @@ interface ProductModalProps {
   mainCategories: CategoryOption[];
   subCategories: SubCategoryOption[];
   thirdSubCategories: ThirdSubCategoryOption[];
+  /** From GET /admins/category-tree — used for additional category dropdowns. */
+  additionalCategoryOptions: AdditionalCategorySelectOption[];
 }
 
 export function ProductModal({
@@ -638,9 +648,11 @@ export function ProductModal({
   mainCategories,
   subCategories,
   thirdSubCategories,
+  additionalCategoryOptions,
 }: ProductModalProps) {
   const [formData, setFormData] = useState<ProductFormFields>(() => emptyProductForm());
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
+  const [additionalSelectKey, setAdditionalSelectKey] = useState(0);
 
   const filteredSubCategories = subCategories.filter((sub) =>
     idsEqual(sub.categoryId, formData.categoryId)
@@ -648,6 +660,29 @@ export function ProductModal({
   const filteredThirdSub = thirdSubCategories.filter((third) =>
     idsEqual(third.subCategoryId, formData.subCategoryId)
   );
+
+  const selectedThirdCategoryName = thirdSubCategories.find((t) =>
+    idsEqual(t.id, formData.thirdSubCategoryId)
+  )?.name;
+
+  const additionalOptionsForThird = useMemo(() => {
+    if (!selectedThirdCategoryName) return [];
+    return additionalCategoryOptions.filter((o) => o.thirdName === selectedThirdCategoryName);
+  }, [additionalCategoryOptions, selectedThirdCategoryName]);
+
+  const additionalCategoriesAvailableToAdd = useMemo(
+    () =>
+      additionalOptionsForThird.filter((o) => !formData.additionalCategories.includes(o.name)),
+    [additionalOptionsForThird, formData.additionalCategories]
+  );
+
+  const additionalLabelByName = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const o of additionalCategoryOptions) {
+      m.set(o.name, o.label);
+    }
+    return m;
+  }, [additionalCategoryOptions]);
 
   // Add flow: keep draft when dialog closes/reopens. View/edit: sync from `product` when set.
   useEffect(() => {
@@ -662,7 +697,13 @@ export function ProductModal({
       subCategoryId: product.subCategoryId ? toIdString(product.subCategoryId) : '',
       thirdSubCategoryId: product.thirdSubCategoryId ? toIdString(product.thirdSubCategoryId) : '',
       featured: Boolean(product.featured),
-      images: Array.isArray(product.images) ? [...product.images] : [],
+      imageItems: Array.isArray(product.images)
+        ? product.images.map((url, i) => ({
+            id: `existing-url-${i}-${String(url).slice(0, 24)}`,
+            kind: 'url' as const,
+            url,
+          }))
+        : [],
     });
     setFieldErrors({});
   }, [open, product]);
@@ -697,14 +738,33 @@ export function ProductModal({
       const d = parseFloat(discTrim);
       if (Number.isNaN(d) || d <= 0) {
         errors.discountedPrice = 'Enter a valid sale price or leave blank.';
-      } else if (d >= priceNum) {
+      } else if (Number.isNaN(priceNum) || priceNum <= 0) {
+        errors.discountedPrice = 'Enter a valid MRP before setting a sale price.';
+      } else if (d > priceNum) {
+        errors.discountedPrice = 'Sale price cannot be greater than MRP.';
+      } else if (d === priceNum) {
         errors.discountedPrice = 'Sale price must be less than MRP.';
       } else {
         discountedPriceNum = d;
       }
     }
-    if (formData.images.length === 0) {
-      errors.images = 'Add at least one image URL (https recommended).';
+    if (formData.imageItems.length === 0) {
+      errors.images = 'Add at least one image (upload or URL).';
+    } else {
+      for (const item of formData.imageItems) {
+        if (item.kind === 'url') {
+          try {
+            const parsed = new URL(item.url);
+            if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+              errors.images = 'Each image URL must use http or https.';
+              break;
+            }
+          } catch {
+            errors.images = 'One or more image URLs are invalid.';
+            break;
+          }
+        }
+      }
     }
     if (!formData.categoryId?.trim()) errors.categoryId = 'Select a main category.';
 
@@ -757,9 +817,19 @@ export function ProductModal({
       }))
       .filter((a) => a.city.length > 0);
 
-    const addons = formData.addons
-      .map((a) => ({ name: a.name.trim(), isDefault: a.isDefault }))
-      .filter((a) => a.name.length > 0);
+    const customizationSections = formData.customizationSections
+      .filter((s) => s.name.trim())
+      .map((s) => ({
+        name: s.name.trim(),
+        priority: Number.isFinite(s.priority) ? s.priority : 0,
+        addons: s.addons
+          .map((a) => ({ name: a.name.trim() }))
+          .filter((a) => a.name.length > 0),
+      }));
+
+    const imageSlots: ProductImageSlot[] = formData.imageItems.map((item) =>
+      item.kind === 'url' ? { kind: 'url', url: item.url } : { kind: 'file', file: item.file }
+    );
 
     onSave({
       name: formData.name.trim(),
@@ -773,14 +843,14 @@ export function ProductModal({
       mainCategoryName: category.name,
       subCategoryName: subCategory.name,
       thirdSubCategoryName: thirdSub.name,
-      images: formData.images,
+      imageSlots,
       tier: formData.tier === 'premium' ? 'premium' : 'standard',
       tags: formData.tags,
       inclusions: formData.inclusions,
       experiences: formData.experiences,
       keyHighlights: formData.keyHighlights,
       additionalCategories: formData.additionalCategories,
-      customizationSections: formData.customizationSections,
+      customizationSections,
       serviceableAreas,
       location: formData.location.trim(),
       setupDuration: formData.setupDuration.trim(),
@@ -788,7 +858,6 @@ export function ProductModal({
       advanceBooking: formData.advanceBooking.trim(),
       cancellationPolicy: formData.cancellationPolicy.trim(),
       youtubeVideoLink: formData.youtubeVideoLink.trim(),
-      addons,
     });
     onOpenChange(false);
     if (!product) {
@@ -807,7 +876,7 @@ export function ProductModal({
       description={
         product
           ? 'Product editing uses the super-admin API in the backend.'
-          : 'All fields map to POST /admins/addproducts. Names must exist in Mongo (additional categories, sections, addons).'
+          : 'All fields map to POST /admins/addproducts (JSON or multipart when images are uploaded). Names must exist in Mongo (additional categories, sections, addons).'
       }
       contentClassName="max-w-4xl"
     >
@@ -853,7 +922,24 @@ export function ProductModal({
                 step="0.01"
                 min={0}
                 value={formData.price}
-                onChange={(e) => setFormData({ ...formData, price: e.target.value })}
+                onChange={(e) => {
+                  const nextPrice = e.target.value;
+                  setFormData({ ...formData, price: nextPrice });
+                  setFieldErrors((prev) => {
+                    const next = { ...prev };
+                    const p = parseFloat(nextPrice);
+                    const disc = formData.discountedPrice.trim();
+                    if (disc && !Number.isNaN(p) && p > 0) {
+                      const d = parseFloat(disc);
+                      if (!Number.isNaN(d) && d > 0 && d >= p) {
+                        next.discountedPrice = 'Sale price must be less than MRP.';
+                      } else {
+                        delete next.discountedPrice;
+                      }
+                    }
+                    return next;
+                  });
+                }}
                 placeholder="0.00"
                 disabled={dis}
                 className={cn(fieldErrors.price && 'border-destructive')}
@@ -867,14 +953,35 @@ export function ProductModal({
                 type="number"
                 step="0.01"
                 min={0}
+                max={
+                  formData.price.trim() && !Number.isNaN(parseFloat(formData.price))
+                    ? parseFloat(formData.price)
+                    : undefined
+                }
                 value={formData.discountedPrice}
-                onChange={(e) => setFormData({ ...formData, discountedPrice: e.target.value })}
+                onChange={(e) => {
+                  const v = e.target.value;
+                  setFormData({ ...formData, discountedPrice: v });
+                  setFieldErrors((prev) => {
+                    const next = { ...prev };
+                    const p = parseFloat(formData.price);
+                    const d = parseFloat(v.trim());
+                    if (v.trim() && !Number.isNaN(d) && d > 0 && !Number.isNaN(p) && p > 0 && d >= p) {
+                      next.discountedPrice = 'Sale price must be less than MRP.';
+                    } else if (v.trim() && !Number.isNaN(d) && d <= 0) {
+                      next.discountedPrice = 'Enter a valid sale price or leave blank.';
+                    } else {
+                      delete next.discountedPrice;
+                    }
+                    return next;
+                  });
+                }}
                 placeholder="Leave blank if not discounted"
                 disabled={dis}
                 className={cn(fieldErrors.discountedPrice && 'border-destructive')}
               />
               <p className="text-xs text-muted-foreground">
-                Must be lower than MRP. Sent to API as <code className="text-xs">discountedPrice</code>.
+                Cannot exceed MRP. Sent to API as <code className="text-xs">discountedPrice</code>.
               </p>
               {fieldErrors.discountedPrice ? (
                 <p className="text-sm text-destructive">{fieldErrors.discountedPrice}</p>
@@ -1020,114 +1127,107 @@ export function ProductModal({
                 </p>
               ) : null}
             </div>
-            <div className="sm:col-span-2">
-              <ChipListField
-                label="Additional categories"
-                description="Exact names as stored in Mongo (optional)."
-                placeholder="e.g. Outdoor"
-                values={formData.additionalCategories}
-                onChange={(next) => setFormData({ ...formData, additionalCategories: next })}
-                sanitize={sanitizeMongoNamedRef}
-                onReject={chipReject}
-                disabled={dis}
-              />
-            </div>
-            <div className="sm:col-span-2">
-              <ChipListField
-                label="Customization sections"
-                description="Exact CustomizationSection names from your DB (optional)."
-                placeholder="e.g. Recommended"
-                values={formData.customizationSections}
-                onChange={(next) => setFormData({ ...formData, customizationSections: next })}
-                sanitize={sanitizeMongoNamedRef}
-                onReject={chipReject}
-                disabled={dis}
-              />
+            <div className="sm:col-span-2 space-y-2">
+              <div>
+                <Label>Additional categories</Label>
+                <p className="text-xs text-muted-foreground">
+                  Optional — pick from the category tree under the selected third-level category (same source as
+                  Additional Category List).
+                </p>
+              </div>
+              {!selectedThirdCategoryName ? (
+                <p className="text-xs text-amber-600 dark:text-amber-500">
+                  Select main, sub, and third-level category first.
+                </p>
+              ) : additionalOptionsForThird.length === 0 ? (
+                <p className="text-xs text-muted-foreground">
+                  No additional categories exist under &quot;{selectedThirdCategoryName}&quot;. Create them under{' '}
+                  <span className="font-medium">Additional Category</span> in the sidebar.
+                </p>
+              ) : (
+                <>
+                  <Select
+                    key={additionalSelectKey}
+                    disabled={dis || additionalCategoriesAvailableToAdd.length === 0}
+                    onValueChange={(name) => {
+                      if (!name || formData.additionalCategories.includes(name)) return;
+                      setFormData((prev) => ({
+                        ...prev,
+                        additionalCategories: [...prev.additionalCategories, name],
+                      }));
+                      setAdditionalSelectKey((k) => k + 1);
+                    }}
+                  >
+                    <SelectTrigger className="w-full">
+                      <SelectValue
+                        placeholder={
+                          additionalCategoriesAvailableToAdd.length
+                            ? 'Add additional category…'
+                            : 'All matching categories added'
+                        }
+                      />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {additionalCategoriesAvailableToAdd.map((o) => (
+                        <SelectItem key={o.name} value={o.name}>
+                          {o.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  {formData.additionalCategories.length > 0 ? (
+                    <div className="flex flex-wrap gap-2 pt-1">
+                      {formData.additionalCategories.map((name) => (
+                        <Badge
+                          key={name}
+                          variant="secondary"
+                          className="max-w-full gap-1 py-1 pl-2 pr-1 font-normal"
+                          title={additionalLabelByName.get(name) ?? name}
+                        >
+                          <span className="truncate">{name}</span>
+                          <button
+                            type="button"
+                            disabled={dis}
+                            className="rounded-sm p-0.5 hover:bg-muted-foreground/20 disabled:opacity-50"
+                            onClick={() =>
+                              setFormData((prev) => ({
+                                ...prev,
+                                additionalCategories: prev.additionalCategories.filter((n) => n !== name),
+                              }))
+                            }
+                            aria-label={`Remove ${name}`}
+                          >
+                            <X className="h-3.5 w-3.5" />
+                          </button>
+                        </Badge>
+                      ))}
+                    </div>
+                  ) : null}
+                </>
+              )}
             </div>
           </div>
         </FormSectionCard>
 
-        <FormSectionCard title="Images" description="Direct image links only (http or https)." icon={ImageIcon}>
+        <CustomizationAddonsPanel
+          sections={formData.customizationSections}
+          onSectionsChange={(next) => setFormData({ ...formData, customizationSections: next })}
+          sanitize={sanitizeMongoNamedRef}
+          onReject={chipReject}
+          disabled={dis}
+        />
+
+        <FormSectionCard
+          title="Images"
+          description="Upload files or paste HTTPS URLs — multiple images supported (same as POST /admins/addproducts multipart)."
+          icon={ImageIcon}
+        >
           <ImageDropzoneField
-            images={formData.images}
-            onChange={(next) => setFormData({ ...formData, images: next })}
+            items={formData.imageItems}
+            onChange={(next) => setFormData({ ...formData, imageItems: next })}
             disabled={dis}
             error={fieldErrors.images}
           />
-        </FormSectionCard>
-
-        <FormSectionCard
-          title="Addons"
-          description="Must match Addon documents by name. Toggle default selection per row."
-          icon={Boxes}
-        >
-          <div className="space-y-3">
-            {formData.addons.map((addon, idx) => (
-              <div
-                key={idx}
-                className="flex flex-col gap-3 rounded-lg border bg-muted/20 p-3 sm:flex-row sm:items-end"
-              >
-                <div className="flex-1 space-y-1">
-                  <Label className="text-xs text-muted-foreground">Addon name</Label>
-                  <Input
-                    value={addon.name}
-                    onChange={(e) => {
-                      const next = [...formData.addons];
-                      next[idx] = { ...next[idx], name: e.target.value };
-                      setFormData({ ...formData, addons: next });
-                    }}
-                    placeholder="Addon name (DB match)"
-                    disabled={dis}
-                  />
-                </div>
-                <div className="flex items-center gap-2 sm:pb-2">
-                  <Checkbox
-                    id={`addon-def-${idx}`}
-                    checked={addon.isDefault}
-                    onCheckedChange={(c) => {
-                      const next = [...formData.addons];
-                      next[idx] = { ...next[idx], isDefault: c === true };
-                      setFormData({ ...formData, addons: next });
-                    }}
-                    disabled={dis}
-                  />
-                  <Label htmlFor={`addon-def-${idx}`} className="text-sm cursor-pointer">
-                    Default
-                  </Label>
-                </div>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon"
-                  className="shrink-0 text-destructive"
-                  disabled={dis}
-                  onClick={() =>
-                    setFormData({
-                      ...formData,
-                      addons: formData.addons.filter((_, i) => i !== idx),
-                    })
-                  }
-                  aria-label="Remove addon"
-                >
-                  <Trash2 className="h-4 w-4" />
-                </Button>
-              </div>
-            ))}
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              disabled={dis}
-              onClick={() =>
-                setFormData({
-                  ...formData,
-                  addons: [...formData.addons, { name: '', isDefault: false }],
-                })
-              }
-            >
-              + Add another addon
-            </Button>
-          </div>
         </FormSectionCard>
 
         <FormSectionCard
@@ -1327,17 +1427,28 @@ interface OrderStatusModalProps {
   onOpenChange: (open: boolean) => void;
   orderId: string;
   currentStatus: OrderStatus;
-  onSave: (orderId: string, status: OrderStatus) => void;
+  onSave: (orderId: string, status: OrderStatus) => void | Promise<void>;
 }
 
 export function OrderStatusModal({ open, onOpenChange, orderId, currentStatus, onSave }: OrderStatusModalProps) {
   const [status, setStatus] = useState<OrderStatus>(currentStatus);
+  const [submitting, setSubmitting] = useState(false);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  useEffect(() => {
+    if (open) setStatus(currentStatus);
+  }, [open, currentStatus]);
+
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    onSave(orderId, status);
-    toast({ title: 'Order status updated' });
-    onOpenChange(false);
+    setSubmitting(true);
+    try {
+      await Promise.resolve(onSave(orderId, status));
+      onOpenChange(false);
+    } catch {
+      /* parent shows toast */
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   return (
@@ -1345,7 +1456,7 @@ export function OrderStatusModal({ open, onOpenChange, orderId, currentStatus, o
       open={open}
       onOpenChange={onOpenChange}
       title="Update Order Status"
-      description="Change the status of this order"
+      description="Change the status of this order (same values as the backend order model)."
     >
       <form onSubmit={handleSubmit} className="space-y-4">
         <div className="space-y-2">
@@ -1356,7 +1467,7 @@ export function OrderStatusModal({ open, onOpenChange, orderId, currentStatus, o
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="pending">Pending</SelectItem>
-              <SelectItem value="processing">Processing</SelectItem>
+              <SelectItem value="confirmed">Confirmed</SelectItem>
               <SelectItem value="shipped">Shipped</SelectItem>
               <SelectItem value="delivered">Delivered</SelectItem>
               <SelectItem value="cancelled">Cancelled</SelectItem>
@@ -1364,10 +1475,12 @@ export function OrderStatusModal({ open, onOpenChange, orderId, currentStatus, o
           </Select>
         </div>
         <DialogFooter>
-          <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
+          <Button type="button" variant="outline" onClick={() => onOpenChange(false)} disabled={submitting}>
             Cancel
           </Button>
-          <Button type="submit">Update Status</Button>
+          <Button type="submit" disabled={submitting}>
+            {submitting ? 'Updating…' : 'Update Status'}
+          </Button>
         </DialogFooter>
       </form>
     </Modal>

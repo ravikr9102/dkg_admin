@@ -5,23 +5,22 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { ApiError } from "@/lib/api";
-import { sendAdminSignupOtp, verifyAdminSignup } from "@/api/admins";
-import { sendSuperAdminSignupOtp, verifySuperAdminSignup } from "@/api/superadmins";
-import { Layers, ArrowLeft } from "lucide-react";
+import { adminForgotPassword, adminResetPassword } from "@/api/admins";
+import { superAdminForgotPassword, superAdminResetPassword } from "@/api/superadmins";
+import { ArrowLeft, Layers } from "lucide-react";
 
-type Step = "email" | "details";
+const MIN_PASSWORD = 6;
 
-export default function AdminSignup() {
+export default function ForgotPassword() {
   const { isAuthenticated, sessionChecked } = useAuth();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const isSuperMode = searchParams.get("mode") === "super";
-  const [step, setStep] = useState<Step>("email");
+  const [step, setStep] = useState<"email" | "reset">("email");
   const [email, setEmail] = useState("");
-  const [fullName, setFullName] = useState("");
-  const [password, setPassword] = useState("");
-  const [confirmPassword, setConfirmPassword] = useState("");
   const [otp, setOtp] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [info, setInfo] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -37,62 +36,72 @@ export default function AdminSignup() {
     setLoading(true);
     try {
       const res = isSuperMode
-        ? await sendSuperAdminSignupOtp({ email: email.trim().toLowerCase() })
-        : await sendAdminSignupOtp({ email: email.trim().toLowerCase() });
-      setInfo(res.message ?? "Check your email for the verification code.");
-      setStep("details");
+        ? await superAdminForgotPassword({ email: email.trim().toLowerCase() })
+        : await adminForgotPassword({ email: email.trim().toLowerCase() });
+      setInfo(res.message);
+      setStep("reset");
     } catch (err) {
       const message =
-        err instanceof ApiError ? err.message : "Could not send code. Try again.";
+        err instanceof ApiError ? err.message : "Could not send reset code. Try again.";
       setError(message);
     } finally {
       setLoading(false);
     }
   };
 
-  const handleRegister = async (e: React.FormEvent) => {
+  const handleResendOtp = async () => {
+    setError(null);
+    setInfo(null);
+    setLoading(true);
+    try {
+      const res = isSuperMode
+        ? await superAdminForgotPassword({ email: email.trim().toLowerCase() })
+        : await adminForgotPassword({ email: email.trim().toLowerCase() });
+      setInfo(res.message);
+    } catch (err) {
+      const message =
+        err instanceof ApiError ? err.message : "Could not resend code. Try again.";
+      setError(message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleReset = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
     setInfo(null);
-    if (password.length < 6) {
-      setError("Password must be at least 6 characters.");
+    if (newPassword.length < MIN_PASSWORD) {
+      setError(`Password must be at least ${MIN_PASSWORD} characters.`);
       return;
     }
-    if (password !== confirmPassword) {
+    if (newPassword !== confirmPassword) {
       setError("Passwords do not match.");
-      return;
-    }
-    if (!otp.trim()) {
-      setError("Enter the code from your email.");
       return;
     }
     setLoading(true);
     try {
       const res = isSuperMode
-        ? await verifySuperAdminSignup({
-            fullName: fullName.trim(),
+        ? await superAdminResetPassword({
             email: email.trim().toLowerCase(),
-            password,
             otp: otp.trim(),
+            newPassword,
           })
-        : await verifyAdminSignup({
-            fullName: fullName.trim(),
+        : await adminResetPassword({
             email: email.trim().toLowerCase(),
-            password,
             otp: otp.trim(),
+            newPassword,
           });
-      const message =
-        res.message ??
-        (isSuperMode
-          ? "Super admin account created. You can sign in now."
-          : "Registration submitted. A super admin must approve your account before you can sign in.");
       navigate(isSuperMode ? "/login?mode=super" : "/login", {
         replace: true,
-        state: { fromSignup: true as const, registeredMessage: message },
+        state: {
+          fromPasswordReset: true,
+          resetMessage: res.message || "Password reset successfully. You can sign in now.",
+        },
       });
     } catch (err) {
       const message =
-        err instanceof ApiError ? err.message : "Registration failed. Try again.";
+        err instanceof ApiError ? err.message : "Could not reset password. Try again.";
       setError(message);
     } finally {
       setLoading(false);
@@ -107,12 +116,12 @@ export default function AdminSignup() {
             <Layers className="h-6 w-6" />
           </div>
           <h1 className="text-2xl font-bold tracking-tight">
-            {isSuperMode ? "Super admin registration" : "Admin registration"}
+            {isSuperMode ? "Reset super admin password" : "Reset admin password"}
           </h1>
           <p className="text-sm text-muted-foreground">
-            {isSuperMode
-              ? "Create a platform super admin account (subject to backend policy)."
-              : "Create an account first. You will sign in after a super admin approves you."}
+            {step === "email"
+              ? "Enter your registered admin email. We will send a one-time code."
+              : "Enter the code from your email and choose a new password."}
           </p>
         </div>
 
@@ -123,112 +132,109 @@ export default function AdminSignup() {
                 {error}
               </p>
             )}
-            {info && (
-              <p className="text-sm text-muted-foreground bg-muted/50 rounded-md px-3 py-2">
-                {info}
-              </p>
-            )}
             <div className="space-y-2">
-              <Label htmlFor="signup-email">Work email</Label>
+              <Label htmlFor="email">Email</Label>
               <Input
-                id="signup-email"
+                id="email"
                 type="email"
                 autoComplete="email"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                placeholder="you@company.com"
                 required
               />
             </div>
             <Button type="submit" className="w-full" disabled={loading}>
-              {loading ? "Sending code…" : "Send verification code"}
+              {loading ? "Sending…" : "Send reset code"}
             </Button>
-            <p className="text-center text-sm text-muted-foreground">
-              Already registered?{" "}
+            <p className="text-center text-sm">
               <Link
                 to={isSuperMode ? "/login?mode=super" : "/login"}
-                className="text-primary font-medium hover:underline"
+                className="inline-flex items-center gap-1 text-primary font-medium hover:underline"
               >
-                Sign in
+                <ArrowLeft className="h-3 w-3" />
+                Back to sign in
               </Link>
             </p>
           </form>
         ) : (
-          <form onSubmit={handleRegister} className="space-y-4">
-            <button
-              type="button"
-              onClick={() => {
-                setStep("email");
-                setError(null);
-              }}
-              className="flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground"
-            >
-              <ArrowLeft className="h-4 w-4" />
-              Different email
-            </button>
+          <form onSubmit={handleReset} className="space-y-4">
             {error && (
               <p className="text-sm text-destructive bg-destructive/10 rounded-md px-3 py-2">
                 {error}
               </p>
             )}
             {info && (
-              <p className="text-sm text-green-700 dark:text-green-400 bg-green-500/10 rounded-md px-3 py-2">
+              <p className="text-sm text-green-800 dark:text-green-200 bg-green-500/15 rounded-md px-3 py-2">
                 {info}
               </p>
             )}
-            <p className="text-xs text-muted-foreground">
-              Code sent to <span className="font-medium text-foreground">{email}</span>
-            </p>
             <div className="space-y-2">
-              <Label htmlFor="fullName">Full name</Label>
-              <Input
-                id="fullName"
-                autoComplete="name"
-                value={fullName}
-                onChange={(e) => setFullName(e.target.value)}
-                required
-              />
+              <Label>Email</Label>
+              <Input value={email} disabled className="bg-muted" />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="signup-otp">Verification code</Label>
+              <Label htmlFor="otp">One-time code</Label>
               <Input
-                id="signup-otp"
+                id="otp"
                 inputMode="numeric"
                 autoComplete="one-time-code"
                 value={otp}
-                onChange={(e) => setOtp(e.target.value.replace(/\s/g, ""))}
-                placeholder="From email"
+                onChange={(e) => setOtp(e.target.value)}
                 required
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="signup-password">Password</Label>
+              <Label htmlFor="newPassword">New password</Label>
               <Input
-                id="signup-password"
+                id="newPassword"
                 type="password"
                 autoComplete="new-password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                minLength={6}
+                value={newPassword}
+                onChange={(e) => setNewPassword(e.target.value)}
                 required
+                minLength={MIN_PASSWORD}
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="confirm-password">Confirm password</Label>
+              <Label htmlFor="confirmPassword">Confirm new password</Label>
               <Input
-                id="confirm-password"
+                id="confirmPassword"
                 type="password"
                 autoComplete="new-password"
                 value={confirmPassword}
                 onChange={(e) => setConfirmPassword(e.target.value)}
-                minLength={6}
                 required
+                minLength={MIN_PASSWORD}
               />
             </div>
             <Button type="submit" className="w-full" disabled={loading}>
-              {loading ? "Submitting…" : "Complete registration"}
+              {loading ? "Updating…" : "Set new password"}
             </Button>
-            <p className="text-center text-sm text-muted-foreground">
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between text-sm">
+              <button
+                type="button"
+                className="text-primary font-medium hover:underline disabled:opacity-50"
+                disabled={loading}
+                onClick={handleResendOtp}
+              >
+                Resend code
+              </button>
+              <button
+                type="button"
+                className="text-muted-foreground hover:underline"
+                onClick={() => {
+                  setStep("email");
+                  setOtp("");
+                  setNewPassword("");
+                  setConfirmPassword("");
+                  setError(null);
+                  setInfo(null);
+                }}
+              >
+                Use different email
+              </button>
+            </div>
+            <p className="text-center text-sm">
               <Link
                 to={isSuperMode ? "/login?mode=super" : "/login"}
                 className="text-primary font-medium hover:underline"

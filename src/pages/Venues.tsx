@@ -17,6 +17,8 @@ import {
 } from '@/components/ui/table';
 import { VenueModal, type VenueSavePayload } from '@/components/modals/FormModals';
 import { createVenue, getAdminVenues, type ApiVenueDoc } from '@/api/admins';
+import { getSuperAdminVenues } from '@/api/superadmins';
+import { useAuth } from '@/contexts/AuthContext';
 import { toast } from '@/hooks/use-toast';
 import { ApiError } from '@/lib/api';
 
@@ -33,6 +35,7 @@ function rowFromApi(v: ApiVenueDoc) {
 }
 
 export default function Venues() {
+  const { isSuperAdmin } = useAuth();
   const qc = useQueryClient();
   const location = useLocation();
   const navigate = useNavigate();
@@ -40,15 +43,22 @@ export default function Venues() {
   const [modalOpen, setModalOpen] = useState(false);
 
   useEffect(() => {
+    if (isSuperAdmin) return;
     if (location.pathname === '/venues/add') {
       setModalOpen(true);
       navigate('/venues', { replace: true });
     }
-  }, [location.pathname, navigate]);
+  }, [location.pathname, navigate, isSuperAdmin]);
 
   const { data: rawVenues = [], isLoading } = useQuery({
-    queryKey: ['admin', 'venues'],
-    queryFn: async () => (await getAdminVenues()).venues,
+    queryKey: isSuperAdmin ? ['superadmin', 'venues'] : ['admin', 'venues'],
+    queryFn: async () => {
+      if (isSuperAdmin) {
+        const r = await getSuperAdminVenues();
+        return r.venues as ApiVenueDoc[];
+      }
+      return (await getAdminVenues()).venues;
+    },
   });
 
   const rows = rawVenues.map(rowFromApi);
@@ -151,15 +161,18 @@ export default function Venues() {
     <DashboardLayout>
       <PageHeader
         title="Venues"
-        description="GET /admins/venues · POST /admins/add-venue (multipart, up to 10 images). No edit or delete in admin UI."
+        description={
+          isSuperAdmin
+            ? 'GET /superadmins/venues — platform-wide list (read-only in this UI).'
+            : 'GET /admins/venues · POST /admins/add-venue (multipart, up to 10 images). No edit or delete in admin UI.'
+        }
       >
-        <Button
-          onClick={() => setModalOpen(true)}
-          disabled={createMut.isPending}
-        >
-          <Plus className="w-4 h-4" />
-          Add Venue
-        </Button>
+        {!isSuperAdmin ? (
+          <Button onClick={() => setModalOpen(true)} disabled={createMut.isPending}>
+            <Plus className="w-4 h-4" />
+            Add Venue
+          </Button>
+        ) : null}
       </PageHeader>
 
       <div className="flex items-center gap-4 mb-6">
@@ -183,10 +196,12 @@ export default function Venues() {
             title="No venues found"
             description="Create a venue with photos and pricing."
             action={
-              <Button onClick={() => setModalOpen(true)}>
-                <Plus className="w-4 h-4" />
-                Add Venue
-              </Button>
+              !isSuperAdmin ? (
+                <Button onClick={() => setModalOpen(true)}>
+                  <Plus className="w-4 h-4" />
+                  Add Venue
+                </Button>
+              ) : undefined
             }
           />
         ) : (
@@ -234,7 +249,9 @@ export default function Venues() {
         )}
       </DataTableWrapper>
 
-      <VenueModal open={modalOpen} onOpenChange={setModalOpen} onSave={handleSave} />
+      {!isSuperAdmin ? (
+        <VenueModal open={modalOpen} onOpenChange={setModalOpen} onSave={handleSave} />
+      ) : null}
     </DashboardLayout>
   );
 }

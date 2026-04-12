@@ -99,7 +99,8 @@ export interface Blog {
   updatedAt: string;
 }
 
-export type OrderStatus = 'pending' | 'processing' | 'shipped' | 'delivered' | 'cancelled';
+/** Aligns with backend order model: pending | confirmed | shipped | delivered | cancelled */
+export type OrderStatus = 'pending' | 'confirmed' | 'shipped' | 'delivered' | 'cancelled';
 
 export interface OrderItem {
   id: string;

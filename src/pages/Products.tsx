@@ -34,15 +34,20 @@ import {
   addProduct,
   getAdminProducts,
   getCategories,
+  getCategoryTree,
   toggleProductFeatured,
   toggleProductTier,
 } from '@/api/admins';
-import { categorySelectOptions } from '@/utils/categoryTree';
+import { additionalCategorySelectOptions, categorySelectOptions } from '@/utils/categoryTree';
 import { apiProductToProduct } from '@/utils/mapEntity';
 import { toast } from '@/hooks/use-toast';
 import { ApiError } from '@/lib/api';
+import { useAuth } from '@/contexts/AuthContext';
+import { getSuperAdminProducts } from '@/api/superadmins';
+import type { ApiProductDoc } from '@/api/admins';
 
 export default function Products() {
+  const { isSuperAdmin, isVendorAdmin } = useAuth();
   const qc = useQueryClient();
   const [search, setSearch] = useState('');
   const [categoryFilter, setCategoryFilter] = useState('all');
@@ -51,13 +56,31 @@ export default function Products() {
   const { data: rawCategories = [] } = useQuery({
     queryKey: ['admin', 'categories'],
     queryFn: async () => (await getCategories()).categories,
+    enabled: isVendorAdmin,
+  });
+
+  const { data: categoryTree = [] } = useQuery({
+    queryKey: ['admin', 'category-tree'],
+    queryFn: async () => (await getCategoryTree()).categoryTree,
+    enabled: isVendorAdmin,
   });
 
   const { mainOptions, subOptions, thirdOptions } = categorySelectOptions(rawCategories);
 
+  const additionalCategoryOptions = useMemo(
+    () => (categoryTree.length ? additionalCategorySelectOptions(categoryTree) : []),
+    [categoryTree]
+  );
+
   const { data: rawProducts = [], isLoading } = useQuery({
-    queryKey: ['admin', 'products'],
-    queryFn: async () => (await getAdminProducts()).products,
+    queryKey: isSuperAdmin ? ['superadmin', 'products'] : ['admin', 'products'],
+    queryFn: async () => {
+      if (isSuperAdmin) {
+        const r = await getSuperAdminProducts();
+        return r.products as ApiProductDoc[];
+      }
+      return (await getAdminProducts()).products;
+    },
   });
 
   const products: Product[] = useMemo(
@@ -123,7 +146,7 @@ export default function Products() {
       mainCategory: data.mainCategoryName,
       subCategory: data.subCategoryName,
       thirdCategory: data.thirdSubCategoryName,
-      images: data.images,
+      imageSlots: data.imageSlots,
       isFeatured: data.featured,
       tier: data.tier,
       tags: data.tags,
@@ -140,28 +163,38 @@ export default function Products() {
       advanceBooking: data.advanceBooking || undefined,
       cancellationPolicy: data.cancellationPolicy || undefined,
       youtubeVideoLink: data.youtubeVideoLink || undefined,
-      addons: data.addons.length ? data.addons : undefined,
       inclusions: data.inclusions.length ? data.inclusions : undefined,
       experiences: data.experiences.length ? data.experiences : undefined,
       keyHighlights: data.keyHighlights.length ? data.keyHighlights : undefined,
     });
   };
 
-  const categoryNames = useMemo(
-    () => ['all', ...mainOptions.map((m) => m.name)],
-    [mainOptions]
-  );
+  const categoryNames = useMemo(() => {
+    if (isSuperAdmin) {
+      const names = new Set(
+        products.map((p) => p.categoryName).filter((n): n is string => Boolean(n && n !== '—'))
+      );
+      return ['all', ...Array.from(names).sort()];
+    }
+    return ['all', ...mainOptions.map((m) => m.name)];
+  }, [isSuperAdmin, products, mainOptions]);
 
   return (
     <DashboardLayout>
       <PageHeader
         title="Products"
-        description="GET /admins/products · POST /admins/addproducts · toggles for featured & tier"
+        description={
+          isSuperAdmin
+            ? 'GET /superadmins/products — platform-wide catalog (read-only in this UI).'
+            : 'GET /admins/products · POST /admins/addproducts · toggles for featured & tier'
+        }
       >
-        <Button onClick={() => setModalOpen(true)} disabled={addMutation.isPending}>
-          <Plus className="w-4 h-4" />
-          Add Product
-        </Button>
+        {!isSuperAdmin ? (
+          <Button onClick={() => setModalOpen(true)} disabled={addMutation.isPending}>
+            <Plus className="w-4 h-4" />
+            Add Product
+          </Button>
+        ) : null}
       </PageHeader>
 
       <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4 mb-6">
@@ -174,7 +207,7 @@ export default function Products() {
             className="pl-9"
           />
         </div>
-        <Select value={categoryFilter} onValueChange={setCategoryFilter}>
+        <Select value={categoryFilter} onValueChange={setCategoryFilter} disabled={categoryNames.length <= 1}>
           <SelectTrigger className="w-[200px]">
             <SelectValue placeholder="All Categories" />
           </SelectTrigger>
@@ -197,10 +230,12 @@ export default function Products() {
             title="No products found"
             description="Create categories down to third level, then add a product."
             action={
-              <Button onClick={() => setModalOpen(true)}>
-                <Plus className="w-4 h-4" />
-                Add Product
-              </Button>
+              !isSuperAdmin ? (
+                <Button onClick={() => setModalOpen(true)}>
+                  <Plus className="w-4 h-4" />
+                  Add Product
+                </Button>
+              ) : undefined
             }
           />
         ) : (
@@ -213,7 +248,7 @@ export default function Products() {
                 <TableHead>Third</TableHead>
                 <TableHead>Price</TableHead>
                 <TableHead>Tier / Featured</TableHead>
-                <TableHead className="text-right">Actions</TableHead>
+                {!isSuperAdmin && <TableHead className="text-right">Actions</TableHead>}
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -256,39 +291,41 @@ export default function Products() {
                         )}
                       </div>
                     </TableCell>
-                    <TableCell className="text-right">
-                      <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                          <Button variant="ghost" size="icon">
-                            <MoreHorizontal className="w-4 h-4" />
-                          </Button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end">
-                          <DropdownMenuItem
-                            onClick={() =>
-                              toggleFeaturedMut.mutate({
-                                id: product.id,
-                                isFeatured: !featured,
-                              })
-                            }
-                          >
-                            <Star className="w-4 h-4 mr-2" />
-                            {featured ? 'Unfeature' : 'Mark featured'}
-                          </DropdownMenuItem>
-                          <DropdownMenuItem
-                            onClick={() =>
-                              toggleTierMut.mutate({
-                                id: product.id,
-                                tier: tier === 'premium' ? 'standard' : 'premium',
-                              })
-                            }
-                          >
-                            <Gem className="w-4 h-4 mr-2" />
-                            Set tier to {tier === 'premium' ? 'standard' : 'premium'}
-                          </DropdownMenuItem>
-                        </DropdownMenuContent>
-                      </DropdownMenu>
-                    </TableCell>
+                    {!isSuperAdmin ? (
+                      <TableCell className="text-right">
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <Button variant="ghost" size="icon">
+                              <MoreHorizontal className="w-4 h-4" />
+                            </Button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end">
+                            <DropdownMenuItem
+                              onClick={() =>
+                                toggleFeaturedMut.mutate({
+                                  id: product.id,
+                                  isFeatured: !featured,
+                                })
+                              }
+                            >
+                              <Star className="w-4 h-4 mr-2" />
+                              {featured ? 'Unfeature' : 'Mark featured'}
+                            </DropdownMenuItem>
+                            <DropdownMenuItem
+                              onClick={() =>
+                                toggleTierMut.mutate({
+                                  id: product.id,
+                                  tier: tier === 'premium' ? 'standard' : 'premium',
+                                })
+                              }
+                            >
+                              <Gem className="w-4 h-4 mr-2" />
+                              Set tier to {tier === 'premium' ? 'standard' : 'premium'}
+                            </DropdownMenuItem>
+                          </DropdownMenuContent>
+                        </DropdownMenu>
+                      </TableCell>
+                    ) : null}
                   </TableRow>
                 );
               })}
@@ -297,15 +334,18 @@ export default function Products() {
         )}
       </DataTableWrapper>
 
-      <ProductModal
-        open={modalOpen}
-        onOpenChange={setModalOpen}
-        product={null}
-        onSave={handleSave}
-        mainCategories={mainOptions}
-        subCategories={subOptions}
-        thirdSubCategories={thirdOptions}
-      />
+      {!isSuperAdmin ? (
+        <ProductModal
+          open={modalOpen}
+          onOpenChange={setModalOpen}
+          product={null}
+          onSave={handleSave}
+          mainCategories={mainOptions}
+          subCategories={subOptions}
+          thirdSubCategories={thirdOptions}
+          additionalCategoryOptions={additionalCategoryOptions}
+        />
+      ) : null}
     </DashboardLayout>
   );
 }
