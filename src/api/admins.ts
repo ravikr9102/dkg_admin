@@ -194,11 +194,16 @@ export async function addHeroBanner(body: {
   image: File;
   subCategory?: string;
   thirdCategory?: string;
+  /** Where the banner appears on the guest home page. */
+  placement?: "hero" | "festival" | "kids" | "occasion";
+  sortOrder?: number;
 }) {
   const fd = new FormData();
   fd.append("image", body.image);
   if (body.subCategory) fd.append("subCategory", body.subCategory);
   if (body.thirdCategory) fd.append("thirdCategory", body.thirdCategory);
+  if (body.placement) fd.append("placement", body.placement);
+  if (body.sortOrder != null) fd.append("sortOrder", String(body.sortOrder));
   return apiFetch<{ message: string; banner: unknown }>(`${A}/add-hero-section-banner`, {
     method: "POST",
     body: fd,

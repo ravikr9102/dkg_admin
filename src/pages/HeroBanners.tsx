@@ -5,6 +5,7 @@ import { DashboardLayout } from '@/components/layout/DashboardLayout';
 import { PageHeader } from '@/components/shared/PageComponents';
 import { CategoryBannerSingleField } from '@/components/modals/CategoryBannerSingleField';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import {
@@ -22,6 +23,7 @@ import { toast } from '@/hooks/use-toast';
 import { ApiError } from '@/lib/api';
 
 type TargetKind = 'sub' | 'third';
+type Placement = 'hero' | 'festival' | 'kids' | 'occasion';
 
 export default function HeroBanners() {
   const { isVendorAdmin } = useAuth();
@@ -30,6 +32,8 @@ export default function HeroBanners() {
   const [subName, setSubName] = useState<string>('');
   const [thirdName, setThirdName] = useState<string>('');
   const [file, setFile] = useState<File | null>(null);
+  const [placement, setPlacement] = useState<Placement>('hero');
+  const [sortOrder, setSortOrder] = useState<string>('0');
 
   const { data: rawCategories = [], isLoading } = useQuery({
     queryKey: ['admin', 'categories'],
@@ -61,8 +65,13 @@ export default function HeroBanners() {
   );
 
   const mutation = useMutation({
-    mutationFn: (payload: { image: File; subCategory?: string; thirdCategory?: string }) =>
-      addHeroBanner(payload),
+    mutationFn: (payload: {
+      image: File;
+      subCategory?: string;
+      thirdCategory?: string;
+      placement?: Placement;
+      sortOrder?: number;
+    }) => addHeroBanner(payload),
     onSuccess: (data) => {
       qc.invalidateQueries({ queryKey: ['admin', 'categories'] });
       toast({ title: data.message ?? 'Hero banner added' });
@@ -82,19 +91,24 @@ export default function HeroBanners() {
       toast({ title: 'Choose a banner image', variant: 'destructive' });
       return;
     }
+    const sortNum = parseInt(sortOrder, 10);
+    const common = {
+      placement,
+      sortOrder: Number.isFinite(sortNum) ? sortNum : 0,
+    };
     if (kind === 'sub') {
       if (!subName) {
         toast({ title: 'Select a sub-category', variant: 'destructive' });
         return;
       }
-      mutation.mutate({ image: file, subCategory: subName });
+      mutation.mutate({ image: file, subCategory: subName, ...common });
       return;
     }
     if (!thirdName) {
       toast({ title: 'Select a third sub-category', variant: 'destructive' });
       return;
     }
-    mutation.mutate({ image: file, thirdCategory: thirdName });
+    mutation.mutate({ image: file, thirdCategory: thirdName, ...common });
   };
 
   const thirdNamesFromFlat = thirdOptions.map((t) => t.name);
@@ -103,8 +117,8 @@ export default function HeroBanners() {
   return (
     <DashboardLayout>
       <PageHeader
-        title="Hero section banners"
-        description="POST /admins/add-hero-section-banner — one image per sub-category or third sub-category (name must match an existing category)."
+        title="Home banners"
+        description="Upload images for the top hero carousel or for Festival / Kids / Occasion sections. Each banner links to one sub- or third-category (exact name)."
       />
 
       <Card className="w-full">
@@ -123,6 +137,35 @@ export default function HeroBanners() {
             <p className="text-sm text-muted-foreground">Loading categories…</p>
           ) : (
             <form onSubmit={handleSubmit} className="space-y-6">
+              <div className="grid gap-4 sm:grid-cols-2">
+                <div className="space-y-2">
+                  <Label htmlFor="banner-placement">Show on page</Label>
+                  <Select value={placement} onValueChange={(v) => setPlacement(v as Placement)}>
+                    <SelectTrigger id="banner-placement">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="hero">Top hero carousel</SelectItem>
+                      <SelectItem value="festival">Make Every Festival Special</SelectItem>
+                      <SelectItem value="kids">Kids Decorations</SelectItem>
+                      <SelectItem value="occasion">Make Every Occasion Extra Special</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="banner-sort">Sort order</Label>
+                  <Input
+                    id="banner-sort"
+                    type="number"
+                    min={0}
+                    step={1}
+                    value={sortOrder}
+                    onChange={(e) => setSortOrder(e.target.value)}
+                  />
+                  <p className="text-xs text-muted-foreground">Lower numbers appear first within the same section.</p>
+                </div>
+              </div>
+
               <div className="space-y-3">
                 <Label>Link banner to</Label>
                 <RadioGroup
