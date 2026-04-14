@@ -195,8 +195,10 @@ export async function addHeroBanner(body: {
   subCategory?: string;
   thirdCategory?: string;
   /** Where the banner appears on the guest home page. */
-  placement?: "hero" | "festival" | "kids" | "occasion";
+  placement?: "hero" | "festival" | "festival_hub" | "wedding" | "kids" | "occasion";
   sortOrder?: number;
+  /** Optional label on festival / wedding hub cards (guest falls back to category name). */
+  title?: string;
 }) {
   const fd = new FormData();
   fd.append("image", body.image);
@@ -204,6 +206,9 @@ export async function addHeroBanner(body: {
   if (body.thirdCategory) fd.append("thirdCategory", body.thirdCategory);
   if (body.placement) fd.append("placement", body.placement);
   if (body.sortOrder != null) fd.append("sortOrder", String(body.sortOrder));
+  if (body.title != null && String(body.title).trim() !== "") {
+    fd.append("title", String(body.title).trim());
+  }
   return apiFetch<{ message: string; banner: unknown }>(`${A}/add-hero-section-banner`, {
     method: "POST",
     body: fd,

@@ -23,7 +23,7 @@ import { toast } from '@/hooks/use-toast';
 import { ApiError } from '@/lib/api';
 
 type TargetKind = 'sub' | 'third';
-type Placement = 'hero' | 'festival' | 'kids' | 'occasion';
+type Placement = 'hero' | 'festival' | 'festival_hub' | 'wedding' | 'kids' | 'occasion';
 
 export default function HeroBanners() {
   const { isVendorAdmin } = useAuth();
@@ -34,6 +34,7 @@ export default function HeroBanners() {
   const [file, setFile] = useState<File | null>(null);
   const [placement, setPlacement] = useState<Placement>('hero');
   const [sortOrder, setSortOrder] = useState<string>('0');
+  const [title, setTitle] = useState<string>('');
 
   const { data: rawCategories = [], isLoading } = useQuery({
     queryKey: ['admin', 'categories'],
@@ -71,6 +72,7 @@ export default function HeroBanners() {
       thirdCategory?: string;
       placement?: Placement;
       sortOrder?: number;
+      title?: string;
     }) => addHeroBanner(payload),
     onSuccess: (data) => {
       qc.invalidateQueries({ queryKey: ['admin', 'categories'] });
@@ -78,6 +80,7 @@ export default function HeroBanners() {
       setFile(null);
       setSubName('');
       setThirdName('');
+      setTitle('');
     },
     onError: (err) => {
       const msg = err instanceof ApiError ? err.message : 'Failed to upload banner';
@@ -95,6 +98,7 @@ export default function HeroBanners() {
     const common = {
       placement,
       sortOrder: Number.isFinite(sortNum) ? sortNum : 0,
+      ...(title.trim() ? { title: title.trim() } : {}),
     };
     if (kind === 'sub') {
       if (!subName) {
@@ -118,7 +122,7 @@ export default function HeroBanners() {
     <DashboardLayout>
       <PageHeader
         title="Home banners"
-        description="Upload images for the top hero carousel or for Festival / Kids / Occasion sections. Each banner links to one sub- or third-category (exact name)."
+        description="Upload images for the top hero carousel, home festival strip, /festival hub, /wedding hub, or Kids / Occasion sections. Each banner links to one sub- or third-category (exact name)."
       />
 
       <Card className="w-full">
@@ -146,11 +150,33 @@ export default function HeroBanners() {
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="hero">Top hero carousel</SelectItem>
-                      <SelectItem value="festival">Make Every Festival Special</SelectItem>
+                      <SelectItem value="festival">
+                        Make Every Festival Special (home page only)
+                      </SelectItem>
+                      <SelectItem value="festival_hub">Festival hub (/festival page only)</SelectItem>
+                      <SelectItem value="wedding">Wedding hub (/wedding)</SelectItem>
                       <SelectItem value="kids">Kids Decorations</SelectItem>
                       <SelectItem value="occasion">Make Every Occasion Extra Special</SelectItem>
                     </SelectContent>
                   </Select>
+                  {placement === 'festival' && (
+                    <p className="text-xs text-muted-foreground">
+                      Shown only on the guest <strong>home</strong> page in the &quot;Make Every Festival
+                      Special&quot; section — not on <code className="text-xs">/festival</code>.
+                    </p>
+                  )}
+                  {placement === 'festival_hub' && (
+                    <p className="text-xs text-muted-foreground">
+                      Shown only on the guest <strong>/festival</strong> hub. Upload one banner per occasion (e.g.
+                      Rakhi, Christmas) and link each to the matching <strong>third sub-category</strong>.
+                    </p>
+                  )}
+                  {placement === 'wedding' && (
+                    <p className="text-xs text-muted-foreground">
+                      Shown only on the guest <strong>Wedding</strong> page. Upload one banner per row (e.g. Haldi,
+                      Mehandi) and link each to the matching <strong>third sub-category</strong>.
+                    </p>
+                  )}
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="banner-sort">Sort order</Label>
@@ -164,6 +190,20 @@ export default function HeroBanners() {
                   />
                   <p className="text-xs text-muted-foreground">Lower numbers appear first within the same section.</p>
                 </div>
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="banner-title">Optional title (card line on hub / home sections)</Label>
+                <Input
+                  id="banner-title"
+                  type="text"
+                  placeholder="e.g. Rakhi, Christmas, or Diwali offers"
+                  value={title}
+                  onChange={(e) => setTitle(e.target.value)}
+                />
+                <p className="text-xs text-muted-foreground">
+                  Shown when set; otherwise the third category name is used.
+                </p>
               </div>
 
               <div className="space-y-3">
