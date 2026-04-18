@@ -50,20 +50,20 @@ const App = () => (
               <Route path="/venues" element={<Venues />} />
               <Route path="/venues/add" element={<Venues />} />
               <Route path="/users" element={<Users />} />
+              <Route path="/categories" element={<Categories />} />
+              <Route path="/categories/add" element={<Categories />} />
+              <Route path="/sub-categories" element={<SubCategories />} />
+              <Route path="/sub-categories/add" element={<SubCategories />} />
+              <Route path="/third-sub-categories" element={<ThirdSubCategories />} />
+              <Route path="/third-sub-categories/add" element={<ThirdSubCategories />} />
+              <Route path="/additional-categories" element={<AdditionalCategories />} />
+              <Route path="/additional-categories/add" element={<AdditionalCategories />} />
+              <Route path="/hero-banners" element={<HeroBanners />} />
+              <Route path="/blogs" element={<Blogs />} />
+              <Route path="/blogs/add" element={<Blogs />} />
+              <Route path="/orders" element={<Orders />} />
+              <Route path="/orders/:orderId" element={<OrderDetail />} />
               <Route element={<VendorOnlyRoute />}>
-                <Route path="/categories" element={<Categories />} />
-                <Route path="/categories/add" element={<Categories />} />
-                <Route path="/sub-categories" element={<SubCategories />} />
-                <Route path="/sub-categories/add" element={<SubCategories />} />
-                <Route path="/third-sub-categories" element={<ThirdSubCategories />} />
-                <Route path="/third-sub-categories/add" element={<ThirdSubCategories />} />
-                <Route path="/additional-categories" element={<AdditionalCategories />} />
-                <Route path="/additional-categories/add" element={<AdditionalCategories />} />
-                <Route path="/hero-banners" element={<HeroBanners />} />
-                <Route path="/blogs" element={<Blogs />} />
-                <Route path="/blogs/add" element={<Blogs />} />
-                <Route path="/orders" element={<Orders />} />
-                <Route path="/orders/:orderId" element={<OrderDetail />} />
                 <Route path="/billing" element={<Billing />} />
                 <Route path="/analytics" element={<Analytics />} />
               </Route>

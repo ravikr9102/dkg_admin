@@ -141,6 +141,8 @@ export function flattenAdditionalCategoriesFromTree(
         id: toIdString(node._id),
         name: node.name,
         slug: slugify(node.name),
+        parentCategoryId:
+          node.parentCategory != null ? toIdString(node.parentCategory) : undefined,
         parentName: immediateParentName,
         parentModel:
           (node.parentModel as "ThirdCategory" | "AdditionalCategory") ??

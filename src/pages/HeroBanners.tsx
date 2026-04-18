@@ -17,16 +17,26 @@ import {
 } from '@/components/ui/select';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { addHeroBanner, getCategories, getCategoryTree } from '@/api/admins';
+import { getSuperAdminCategoryTree, superAdminAddHeroBanner } from '@/api/superadmins';
 import { useAuth } from '@/contexts/AuthContext';
 import { categorySelectOptions, thirdCategoryBreadcrumbOptions } from '@/utils/categoryTree';
 import { toast } from '@/hooks/use-toast';
 import { ApiError } from '@/lib/api';
 
 type TargetKind = 'sub' | 'third';
-type Placement = 'hero' | 'festival' | 'festival_hub' | 'wedding' | 'kids' | 'occasion';
+type Placement =
+  | 'hero'
+  | 'festival'
+  | 'festival_hub'
+  | 'wedding'
+  | 'wedding_extra'
+  | 'romantic_couple'
+  | 'kids'
+  | 'occasion';
 
 export default function HeroBanners() {
-  const { isVendorAdmin } = useAuth();
+  const { isVendorAdmin, isSuperAdmin } = useAuth();
+  const canUpload = isVendorAdmin || isSuperAdmin;
   const qc = useQueryClient();
   const [kind, setKind] = useState<TargetKind>('sub');
   const [subName, setSubName] = useState<string>('');
@@ -36,17 +46,31 @@ export default function HeroBanners() {
   const [sortOrder, setSortOrder] = useState<string>('0');
   const [title, setTitle] = useState<string>('');
 
-  const { data: rawCategories = [], isLoading } = useQuery({
+  const { data: vendorCategories = [], isLoading: loadingVendorCats } = useQuery({
     queryKey: ['admin', 'categories'],
     queryFn: async () => (await getCategories()).categories,
     enabled: isVendorAdmin,
   });
 
-  const { data: categoryTree = [] } = useQuery({
+  const { data: vendorTree = [], isLoading: loadingVendorTree } = useQuery({
     queryKey: ['admin', 'category-tree'],
     queryFn: async () => (await getCategoryTree()).categoryTree,
     enabled: isVendorAdmin,
   });
+
+  const { data: superTree = [], isLoading: loadingSuperTree } = useQuery({
+    queryKey: ['superadmin', 'category-tree'],
+    queryFn: async () => (await getSuperAdminCategoryTree()).categoryTree,
+    enabled: isSuperAdmin,
+  });
+
+  const rawCategories = isSuperAdmin ? superTree : vendorCategories;
+  const categoryTree = isSuperAdmin ? superTree : vendorTree;
+  const isLoading = canUpload
+    ? isSuperAdmin
+      ? loadingSuperTree
+      : loadingVendorCats || loadingVendorTree
+    : false;
 
   const { mainOptions, subOptions, thirdOptions } = categorySelectOptions(rawCategories);
 
@@ -73,9 +97,11 @@ export default function HeroBanners() {
       placement?: Placement;
       sortOrder?: number;
       title?: string;
-    }) => addHeroBanner(payload),
+    }) =>
+      isSuperAdmin ? superAdminAddHeroBanner(payload) : addHeroBanner(payload),
     onSuccess: (data) => {
       qc.invalidateQueries({ queryKey: ['admin', 'categories'] });
+      qc.invalidateQueries({ queryKey: ['superadmin', 'category-tree'] });
       toast({ title: data.message ?? 'Hero banner added' });
       setFile(null);
       setSubName('');
@@ -122,7 +148,11 @@ export default function HeroBanners() {
     <DashboardLayout>
       <PageHeader
         title="Home banners"
-        description="Upload images for the top hero carousel, home festival strip, /festival hub, /wedding hub, or Kids / Occasion sections. Each banner links to one sub- or third-category (exact name)."
+        description={
+          isSuperAdmin
+            ? 'Super admin: same CMS banners as vendors — including Wedding page sections (Make Your’s Wedding Extra Special, Romantic Couple Experience). Link each image to a sub- or third-category by exact name.'
+            : 'Upload images for the top hero carousel, home festival strip, /festival hub, /wedding hub, or Kids / Occasion sections. Each banner links to one sub- or third-category (exact name).'
+        }
       />
 
       <Card className="w-full">
@@ -154,7 +184,13 @@ export default function HeroBanners() {
                         Make Every Festival Special (home page only)
                       </SelectItem>
                       <SelectItem value="festival_hub">Festival hub (/festival page only)</SelectItem>
-                      <SelectItem value="wedding">Wedding hub (/wedding)</SelectItem>
+                      <SelectItem value="wedding">Wedding hub — main grid (/wedding)</SelectItem>
+                      <SelectItem value="wedding_extra">
+                        Make Your&apos;s Wedding Extra Special (/wedding)
+                      </SelectItem>
+                      <SelectItem value="romantic_couple">
+                        Romantic Couple Experience (/wedding)
+                      </SelectItem>
                       <SelectItem value="kids">Kids Decorations</SelectItem>
                       <SelectItem value="occasion">Make Every Occasion Extra Special</SelectItem>
                     </SelectContent>
@@ -175,6 +211,18 @@ export default function HeroBanners() {
                     <p className="text-xs text-muted-foreground">
                       Shown only on the guest <strong>Wedding</strong> page. Upload one banner per row (e.g. Haldi,
                       Mehandi) and link each to the matching <strong>third sub-category</strong>.
+                    </p>
+                  )}
+                  {placement === 'wedding_extra' && (
+                    <p className="text-xs text-muted-foreground">
+                      Shown in the &quot;Make Your&apos;s Wedding Extra Special&quot; block on{' '}
+                      <strong>/wedding</strong>. Use up to four linked third-category banners for the card grid.
+                    </p>
+                  )}
+                  {placement === 'romantic_couple' && (
+                    <p className="text-xs text-muted-foreground">
+                      Shown in the &quot;Romantic Couple Experience&quot; section on <strong>/wedding</strong>. Link
+                      each upload to a third sub-category; the layout uses up to four images.
                     </p>
                   )}
                 </div>

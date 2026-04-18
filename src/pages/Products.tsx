@@ -7,6 +7,13 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import {
   Table,
   TableBody,
   TableCell,
@@ -21,12 +28,15 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 import { ProductModal, type ProductModalSavePayload } from '@/components/modals/FormModals';
 import { Product } from '@/types';
 import { Package } from 'lucide-react';
@@ -43,7 +53,12 @@ import { apiProductToProduct } from '@/utils/mapEntity';
 import { toast } from '@/hooks/use-toast';
 import { ApiError } from '@/lib/api';
 import { useAuth } from '@/contexts/AuthContext';
-import { getSuperAdminProducts } from '@/api/superadmins';
+import {
+  getSuperAdminProducts,
+  getSuperAdminCategoryTree,
+  superAdminUpdateProduct,
+  superAdminDeleteProduct,
+} from '@/api/superadmins';
 import type { ApiProductDoc } from '@/api/admins';
 
 export default function Products() {
@@ -52,18 +67,29 @@ export default function Products() {
   const [search, setSearch] = useState('');
   const [categoryFilter, setCategoryFilter] = useState('all');
   const [modalOpen, setModalOpen] = useState(false);
+  const [superEditDoc, setSuperEditDoc] = useState<ApiProductDoc | null>(null);
+  const [deletingProduct, setDeletingProduct] = useState<ApiProductDoc | null>(null);
 
-  const { data: rawCategories = [] } = useQuery({
+  const { data: vendorCategories = [] } = useQuery({
     queryKey: ['admin', 'categories'],
     queryFn: async () => (await getCategories()).categories,
     enabled: isVendorAdmin,
   });
 
-  const { data: categoryTree = [] } = useQuery({
+  const { data: vendorTree = [] } = useQuery({
     queryKey: ['admin', 'category-tree'],
     queryFn: async () => (await getCategoryTree()).categoryTree,
     enabled: isVendorAdmin,
   });
+
+  const { data: superCatTree = [] } = useQuery({
+    queryKey: ['superadmin', 'category-tree'],
+    queryFn: async () => (await getSuperAdminCategoryTree()).categoryTree,
+    enabled: isSuperAdmin,
+  });
+
+  const rawCategories = isSuperAdmin ? superCatTree : vendorCategories;
+  const categoryTree = isSuperAdmin ? superCatTree : vendorTree;
 
   const { mainOptions, subOptions, thirdOptions } = categorySelectOptions(rawCategories);
 
@@ -97,6 +123,37 @@ export default function Products() {
     onError: (err) => {
       const msg = err instanceof ApiError ? err.message : 'Failed to create product';
       toast({ title: msg, variant: 'destructive' });
+    },
+  });
+
+  const superUpdateMut = useMutation({
+    mutationFn: ({ id, data }: { id: string; data: ProductModalSavePayload }) =>
+      superAdminUpdateProduct(id, data),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['superadmin', 'products'] });
+      toast({ title: 'Product updated' });
+      setSuperEditDoc(null);
+    },
+    onError: (err) => {
+      toast({
+        title: err instanceof ApiError ? err.message : 'Update failed',
+        variant: 'destructive',
+      });
+    },
+  });
+
+  const superDeleteMut = useMutation({
+    mutationFn: (id: string) => superAdminDeleteProduct(id),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['superadmin', 'products'] });
+      toast({ title: 'Product deleted' });
+      setDeletingProduct(null);
+    },
+    onError: (err) => {
+      toast({
+        title: err instanceof ApiError ? err.message : 'Delete failed',
+        variant: 'destructive',
+      });
     },
   });
 
@@ -135,7 +192,7 @@ export default function Products() {
     return matchesSearch && matchesCategory;
   });
 
-  const handleSave = (data: ProductModalSavePayload) => {
+  const handleVendorSave = (data: ProductModalSavePayload) => {
     addMutation.mutate({
       name: data.name,
       description: data.description,
@@ -169,6 +226,14 @@ export default function Products() {
     });
   };
 
+  const handleProductModalSave = (data: ProductModalSavePayload) => {
+    if (isSuperAdmin && superEditDoc) {
+      superUpdateMut.mutate({ id: String(superEditDoc._id), data });
+      return;
+    }
+    handleVendorSave(data);
+  };
+
   const categoryNames = useMemo(() => {
     if (isSuperAdmin) {
       const names = new Set(
@@ -179,13 +244,15 @@ export default function Products() {
     return ['all', ...mainOptions.map((m) => m.name)];
   }, [isSuperAdmin, products, mainOptions]);
 
+  const productModalOpen = isSuperAdmin ? !!superEditDoc : modalOpen;
+
   return (
     <DashboardLayout>
       <PageHeader
         title="Products"
         description={
           isSuperAdmin
-            ? 'GET /superadmins/products — platform-wide catalog (read-only in this UI).'
+            ? 'GET /superadmins/products — edit or delete catalog items (PUT/DELETE /superadmins/edit-product|delete-product).'
             : 'GET /admins/products · POST /admins/addproducts · toggles for featured & tier'
         }
       >
@@ -248,7 +315,7 @@ export default function Products() {
                 <TableHead>Third</TableHead>
                 <TableHead>Price</TableHead>
                 <TableHead>Tier / Featured</TableHead>
-                {!isSuperAdmin && <TableHead className="text-right">Actions</TableHead>}
+                <TableHead className="text-right">Actions</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -291,8 +358,27 @@ export default function Products() {
                         )}
                       </div>
                     </TableCell>
-                    {!isSuperAdmin ? (
-                      <TableCell className="text-right">
+                    <TableCell className="text-right">
+                      {isSuperAdmin && raw ? (
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <Button variant="ghost" size="icon" aria-label="Actions">
+                              <MoreHorizontal className="w-4 h-4" />
+                            </Button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end">
+                            <DropdownMenuItem onClick={() => setSuperEditDoc(raw)}>
+                              Edit
+                            </DropdownMenuItem>
+                            <DropdownMenuItem
+                              className="text-destructive"
+                              onClick={() => setDeletingProduct(raw)}
+                            >
+                              Delete
+                            </DropdownMenuItem>
+                          </DropdownMenuContent>
+                        </DropdownMenu>
+                      ) : !isSuperAdmin ? (
                         <DropdownMenu>
                           <DropdownMenuTrigger asChild>
                             <Button variant="ghost" size="icon">
@@ -324,8 +410,8 @@ export default function Products() {
                             </DropdownMenuItem>
                           </DropdownMenuContent>
                         </DropdownMenu>
-                      </TableCell>
-                    ) : null}
+                      ) : null}
+                    </TableCell>
                   </TableRow>
                 );
               })}
@@ -334,18 +420,57 @@ export default function Products() {
         )}
       </DataTableWrapper>
 
-      {!isSuperAdmin ? (
+      {isVendorAdmin ? (
         <ProductModal
           open={modalOpen}
           onOpenChange={setModalOpen}
           product={null}
-          onSave={handleSave}
+          onSave={handleVendorSave}
           mainCategories={mainOptions}
           subCategories={subOptions}
           thirdSubCategories={thirdOptions}
           additionalCategoryOptions={additionalCategoryOptions}
         />
       ) : null}
+
+      {isSuperAdmin ? (
+        <ProductModal
+          open={productModalOpen}
+          onOpenChange={(o) => {
+            if (!o) setSuperEditDoc(null);
+          }}
+          product={superEditDoc ? apiProductToProduct(superEditDoc) : null}
+          editApiSource={superEditDoc}
+          superEdit={!!superEditDoc}
+          onSave={handleProductModalSave}
+          mainCategories={mainOptions}
+          subCategories={subOptions}
+          thirdSubCategories={thirdOptions}
+          additionalCategoryOptions={additionalCategoryOptions}
+        />
+      ) : null}
+
+      <AlertDialog open={!!deletingProduct} onOpenChange={(o) => !o && setDeletingProduct(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete product?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This permanently removes &quot;{deletingProduct?.name}&quot; from the catalog.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={() =>
+                deletingProduct && superDeleteMut.mutate(String(deletingProduct._id))
+              }
+            >
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </DashboardLayout>
   );
 }

@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Plus, Search } from 'lucide-react';
+import { MoreHorizontal, Plus, Search } from 'lucide-react';
 import { DashboardLayout } from '@/components/layout/DashboardLayout';
 import { PageHeader, DataTableWrapper, EmptyState } from '@/components/shared/PageComponents';
 import { Button } from '@/components/ui/button';
@@ -13,26 +13,58 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 import { SubCategoryModal } from '@/components/modals/FormModals';
 import { SubCategory } from '@/types';
 import { Layers } from 'lucide-react';
 import { addSubCategory, getCategories } from '@/api/admins';
+import {
+  deleteSuperAdminSubCategory,
+  getSuperAdminCategoryTree,
+  updateSuperAdminSubCategory,
+} from '@/api/superadmins';
 import { useAuth } from '@/contexts/AuthContext';
 import { categorySelectOptions, flattenSubsAndThirds } from '@/utils/categoryTree';
 import { toast } from '@/hooks/use-toast';
 import { ApiError } from '@/lib/api';
 
 export default function SubCategories() {
-  const { isVendorAdmin } = useAuth();
+  const { isVendorAdmin, isSuperAdmin } = useAuth();
   const qc = useQueryClient();
   const [search, setSearch] = useState('');
   const [modalOpen, setModalOpen] = useState(false);
+  const [editing, setEditing] = useState<SubCategory | null>(null);
+  const [deleting, setDeleting] = useState<SubCategory | null>(null);
 
-  const { data: rawCategories = [], isLoading } = useQuery({
+  const { data: vendorCategories = [], isLoading: loadingVendor } = useQuery({
     queryKey: ['admin', 'categories'],
     queryFn: async () => (await getCategories()).categories,
     enabled: isVendorAdmin,
   });
+
+  const { data: superTree = [], isLoading: loadingSuper } = useQuery({
+    queryKey: ['superadmin', 'category-tree'],
+    queryFn: async () => (await getSuperAdminCategoryTree()).categoryTree,
+    enabled: isSuperAdmin,
+  });
+
+  const rawCategories = isSuperAdmin ? superTree : vendorCategories;
+  const isLoading = isVendorAdmin ? loadingVendor : isSuperAdmin ? loadingSuper : false;
 
   const { mainOptions } = categorySelectOptions(rawCategories);
   const { subCategories } = flattenSubsAndThirds(rawCategories);
@@ -59,11 +91,64 @@ export default function SubCategories() {
     },
   });
 
+  const updateSuperMut = useMutation({
+    mutationFn: async (args: {
+      id: string;
+      name: string;
+      mainCategory: string;
+      bannerImage?: File | null;
+    }) => {
+      return updateSuperAdminSubCategory(
+        args.id,
+        { name: args.name, mainCategory: args.mainCategory },
+        args.bannerImage ?? undefined
+      );
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['superadmin', 'category-tree'] });
+      toast({ title: 'Sub-category updated' });
+      setEditing(null);
+      setModalOpen(false);
+    },
+    onError: (err) => {
+      toast({
+        title: err instanceof ApiError ? err.message : 'Update failed',
+        variant: 'destructive',
+      });
+    },
+  });
+
+  const deleteSuperMut = useMutation({
+    mutationFn: (id: string) => deleteSuperAdminSubCategory(id),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['superadmin', 'category-tree'] });
+      toast({ title: 'Sub-category deleted' });
+      setDeleting(null);
+    },
+    onError: (err) => {
+      toast({
+        title: err instanceof ApiError ? err.message : 'Delete failed',
+        variant: 'destructive',
+      });
+    },
+  });
+
   const handleSave = (data: Partial<SubCategory> & { bannerImage?: File | null }) => {
     const mainName =
       mainOptions.find((m) => m.id === data.categoryId)?.name ?? data.categoryName;
     if (!mainName || !data.name) {
       toast({ title: 'Select a parent category', variant: 'destructive' });
+      return;
+    }
+    if (isSuperAdmin && editing) {
+      const mainId =
+        mainOptions.find((m) => m.id === data.categoryId)?.id ?? editing.categoryId;
+      updateSuperMut.mutate({
+        id: editing.id,
+        name: data.name,
+        mainCategory: mainId,
+        bannerImage: data.bannerImage,
+      });
       return;
     }
     addMutation.mutate({
@@ -78,12 +163,18 @@ export default function SubCategories() {
     <DashboardLayout>
       <PageHeader
         title="Sub-Categories"
-        description="POST /admins/addsubcategory (parent = main category name)"
+        description={
+          isSuperAdmin
+            ? 'Super admin: edit or delete sub-categories (PUT/DELETE /superadmins/sub-category/:id).'
+            : 'POST /admins/addsubcategory (parent = main category name)'
+        }
       >
-        <Button onClick={() => setModalOpen(true)} disabled={addMutation.isPending}>
-          <Plus className="w-4 h-4" />
-          Add Sub-Category
-        </Button>
+        {isVendorAdmin && (
+          <Button onClick={() => setModalOpen(true)} disabled={addMutation.isPending}>
+            <Plus className="w-4 h-4" />
+            Add Sub-Category
+          </Button>
+        )}
       </PageHeader>
 
       <div className="flex items-center gap-4 mb-6">
@@ -107,10 +198,12 @@ export default function SubCategories() {
             title="No sub-categories found"
             description="Add sub-categories under a main category."
             action={
-              <Button onClick={() => setModalOpen(true)}>
-                <Plus className="w-4 h-4" />
-                Add Sub-Category
-              </Button>
+              isVendorAdmin ? (
+                <Button onClick={() => setModalOpen(true)}>
+                  <Plus className="w-4 h-4" />
+                  Add Sub-Category
+                </Button>
+              ) : undefined
             }
           />
         ) : (
@@ -121,6 +214,7 @@ export default function SubCategories() {
                 <TableHead>Parent Category</TableHead>
                 <TableHead>Slug</TableHead>
                 <TableHead>Updated</TableHead>
+                {isSuperAdmin && <TableHead className="text-right">Actions</TableHead>}
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -130,6 +224,33 @@ export default function SubCategories() {
                   <TableCell>{subCategory.categoryName}</TableCell>
                   <TableCell className="text-muted-foreground">{subCategory.slug}</TableCell>
                   <TableCell>{new Date(subCategory.updatedAt).toLocaleDateString()}</TableCell>
+                  {isSuperAdmin && (
+                    <TableCell className="text-right">
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button variant="ghost" size="icon" aria-label="Actions">
+                            <MoreHorizontal className="w-4 h-4" />
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end">
+                          <DropdownMenuItem
+                            onClick={() => {
+                              setEditing(subCategory);
+                              setModalOpen(true);
+                            }}
+                          >
+                            Edit
+                          </DropdownMenuItem>
+                          <DropdownMenuItem
+                            className="text-destructive"
+                            onClick={() => setDeleting(subCategory)}
+                          >
+                            Delete
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    </TableCell>
+                  )}
                 </TableRow>
               ))}
             </TableBody>
@@ -139,11 +260,35 @@ export default function SubCategories() {
 
       <SubCategoryModal
         open={modalOpen}
-        onOpenChange={setModalOpen}
-        subCategory={null}
+        onOpenChange={(o) => {
+          setModalOpen(o);
+          if (!o) setEditing(null);
+        }}
+        subCategory={editing}
         onSave={handleSave}
         mainCategories={mainOptions}
       />
+
+      <AlertDialog open={!!deleting} onOpenChange={(o) => !o && setDeleting(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete sub-category?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This removes &quot;{deleting?.name}&quot;. Third-level categories that depend on it may
+              be affected.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={() => deleting && deleteSuperMut.mutate(deleting.id)}
+            >
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </DashboardLayout>
   );
 }

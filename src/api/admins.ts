@@ -195,7 +195,15 @@ export async function addHeroBanner(body: {
   subCategory?: string;
   thirdCategory?: string;
   /** Where the banner appears on the guest home page. */
-  placement?: "hero" | "festival" | "festival_hub" | "wedding" | "kids" | "occasion";
+  placement?:
+    | "hero"
+    | "festival"
+    | "festival_hub"
+    | "wedding"
+    | "wedding_extra"
+    | "romantic_couple"
+    | "kids"
+    | "occasion";
   sortOrder?: number;
   /** Optional label on festival / wedding hub cards (guest falls back to category name). */
   title?: string;
@@ -692,6 +700,10 @@ export type ApiVenueDoc = {
   startingPrice?: number;
   typesOfVenues?: string[];
   facilities?: string[];
+  accessibilityFeatures?: string[];
+  restrictions?: string[];
+  capacity?: { min?: number; max?: number };
+  otherInformation?: { inHouseDecor?: boolean; advanceBookingWeeks?: number };
   createdAt?: string;
   updatedAt?: string;
 };

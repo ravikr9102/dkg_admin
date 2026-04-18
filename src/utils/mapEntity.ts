@@ -8,6 +8,15 @@ function popName(v: unknown): string | undefined {
   return undefined;
 }
 
+function refId(v: unknown): string {
+  if (v == null) return "";
+  if (typeof v === "string" && /^[a-f\d]{24}$/i.test(v)) return v;
+  if (typeof v === "object" && v !== null && "_id" in v) {
+    return String((v as { _id: unknown })._id);
+  }
+  return "";
+}
+
 export function apiProductToProduct(p: ApiProductDoc): Product {
   return {
     id: String(p._id),
@@ -17,11 +26,11 @@ export function apiProductToProduct(p: ApiProductDoc): Product {
     price: Number(p.price),
     sku: "—",
     stock: 0,
-    categoryId: "",
+    categoryId: refId(p.mainCategory),
     categoryName: popName(p.mainCategory),
-    subCategoryId: "",
+    subCategoryId: refId(p.subCategory),
     subCategoryName: popName(p.subCategory),
-    thirdSubCategoryId: "",
+    thirdSubCategoryId: refId(p.thirdCategory),
     thirdSubCategoryName: popName(p.thirdCategory),
     images: Array.isArray(p.images) ? (p.images as string[]) : [],
     status: "active",

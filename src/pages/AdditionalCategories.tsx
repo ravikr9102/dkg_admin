@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Plus, Search } from 'lucide-react';
+import { MoreHorizontal, Plus, Search } from 'lucide-react';
 import { DashboardLayout } from '@/components/layout/DashboardLayout';
 import { PageHeader, DataTableWrapper, EmptyState } from '@/components/shared/PageComponents';
 import { Button } from '@/components/ui/button';
@@ -13,9 +13,30 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 import { AdditionalCategoryModal } from '@/components/modals/FormModals';
 import { GitBranch } from 'lucide-react';
 import { createAdditionalCategory, getCategoryTree } from '@/api/admins';
+import {
+  deleteSuperAdminAdditionalCategory,
+  getSuperAdminCategoryTree,
+  updateSuperAdminAdditionalCategory,
+} from '@/api/superadmins';
 import { useAuth } from '@/contexts/AuthContext';
 import {
   flattenAdditionalCategoriesFromTree,
@@ -23,20 +44,31 @@ import {
 } from '@/utils/categoryTree';
 import { toast } from '@/hooks/use-toast';
 import { ApiError } from '@/lib/api';
+import type { AdditionalCategory } from '@/types';
 
 export default function AdditionalCategories() {
-  const { isVendorAdmin } = useAuth();
+  const { isVendorAdmin, isSuperAdmin } = useAuth();
   const qc = useQueryClient();
   const [search, setSearch] = useState('');
   const [modalOpen, setModalOpen] = useState(false);
+  const [editing, setEditing] = useState<AdditionalCategory | null>(null);
+  const [deleting, setDeleting] = useState<AdditionalCategory | null>(null);
 
-  const { data: treeData, isLoading } = useQuery({
+  const { data: vendorTree = [], isLoading: loadingVendor } = useQuery({
     queryKey: ['admin', 'category-tree'],
     queryFn: async () => (await getCategoryTree()).categoryTree,
     enabled: isVendorAdmin,
   });
 
-  const tree = treeData ?? [];
+  const { data: superTree = [], isLoading: loadingSuper } = useQuery({
+    queryKey: ['superadmin', 'category-tree'],
+    queryFn: async () => (await getSuperAdminCategoryTree()).categoryTree,
+    enabled: isSuperAdmin,
+  });
+
+  const tree = isSuperAdmin ? superTree : vendorTree;
+  const isLoading = isVendorAdmin ? loadingVendor : isSuperAdmin ? loadingSuper : false;
+
   const rows = useMemo(() => flattenAdditionalCategoriesFromTree(tree), [tree]);
   const thirdOptions = useMemo(() => thirdCategoryBreadcrumbOptions(tree), [tree]);
   const additionalParentNames = useMemo(
@@ -67,12 +99,79 @@ export default function AdditionalCategories() {
     },
   });
 
+  const updateSuperMut = useMutation({
+    mutationFn: async (args: {
+      id: string;
+      name: string;
+      parentCategory: string;
+      parentModel: 'ThirdCategory' | 'AdditionalCategory';
+      level: number;
+      bannerImage?: File | null;
+    }) =>
+      updateSuperAdminAdditionalCategory(
+        args.id,
+        {
+          name: args.name,
+          parentCategory: args.parentCategory,
+          parentModel: args.parentModel,
+          level: args.level,
+        },
+        args.bannerImage ?? undefined
+      ),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['superadmin', 'category-tree'] });
+      toast({ title: 'Additional category updated' });
+      setEditing(null);
+      setModalOpen(false);
+    },
+    onError: (err) => {
+      toast({
+        title: err instanceof ApiError ? err.message : 'Update failed',
+        variant: 'destructive',
+      });
+    },
+  });
+
+  const deleteSuperMut = useMutation({
+    mutationFn: (id: string) => deleteSuperAdminAdditionalCategory(id),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['superadmin', 'category-tree'] });
+      toast({ title: 'Additional category deleted' });
+      setDeleting(null);
+    },
+    onError: (err) => {
+      toast({
+        title: err instanceof ApiError ? err.message : 'Delete failed',
+        variant: 'destructive',
+      });
+    },
+  });
+
   const handleSave = (data: {
     name: string;
     parentName: string;
     parentModel: 'ThirdCategory' | 'AdditionalCategory';
     bannerImage?: File | null;
   }) => {
+    if (isSuperAdmin && editing) {
+      const parentId = editing.parentCategoryId;
+      if (!parentId) {
+        toast({
+          title: 'Missing parent id in tree — refresh and try again',
+          variant: 'destructive',
+        });
+        return;
+      }
+      updateSuperMut.mutate({
+        id: editing.id,
+        name: data.name.trim(),
+        parentCategory: parentId,
+        parentModel: editing.parentModel,
+        level: editing.level,
+        bannerImage: data.bannerImage,
+      });
+      return;
+    }
     addMutation.mutate(data);
     setModalOpen(false);
   };
@@ -81,15 +180,21 @@ export default function AdditionalCategories() {
     <DashboardLayout>
       <PageHeader
         title="Additional Categories"
-        description="POST /admins/create-additional-category (parent = third or additional category name)"
+        description={
+          isSuperAdmin
+            ? 'Super admin: edit name/banner or delete (PUT/DELETE /superadmins/additional-category/:id).'
+            : 'POST /admins/create-additional-category (parent = third or additional category name)'
+        }
       >
-        <Button
-          onClick={() => setModalOpen(true)}
-          disabled={addMutation.isPending || thirdOptions.length === 0}
-        >
-          <Plus className="w-4 h-4" />
-          Add Additional Category
-        </Button>
+        {isVendorAdmin && (
+          <Button
+            onClick={() => setModalOpen(true)}
+            disabled={addMutation.isPending || thirdOptions.length === 0}
+          >
+            <Plus className="w-4 h-4" />
+            Add Additional Category
+          </Button>
+        )}
       </PageHeader>
 
       <div className="flex items-center gap-4 mb-6">
@@ -117,13 +222,15 @@ export default function AdditionalCategories() {
                 : 'Add categories under a third sub-category or nest under another additional category.'
             }
             action={
-              <Button
-                onClick={() => setModalOpen(true)}
-                disabled={thirdOptions.length === 0}
-              >
-                <Plus className="w-4 h-4" />
-                Add Additional Category
-              </Button>
+              isVendorAdmin ? (
+                <Button
+                  onClick={() => setModalOpen(true)}
+                  disabled={thirdOptions.length === 0}
+                >
+                  <Plus className="w-4 h-4" />
+                  Add Additional Category
+                </Button>
+              ) : undefined
             }
           />
         ) : (
@@ -138,6 +245,7 @@ export default function AdditionalCategories() {
                 <TableHead>Level</TableHead>
                 <TableHead>Slug</TableHead>
                 <TableHead>Updated</TableHead>
+                {isSuperAdmin && <TableHead className="text-right">Actions</TableHead>}
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -156,6 +264,33 @@ export default function AdditionalCategories() {
                   <TableCell>{item.level}</TableCell>
                   <TableCell className="text-muted-foreground">{item.slug}</TableCell>
                   <TableCell>{new Date(item.updatedAt).toLocaleDateString()}</TableCell>
+                  {isSuperAdmin && (
+                    <TableCell className="text-right">
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button variant="ghost" size="icon" aria-label="Actions">
+                            <MoreHorizontal className="w-4 h-4" />
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end">
+                          <DropdownMenuItem
+                            onClick={() => {
+                              setEditing(item);
+                              setModalOpen(true);
+                            }}
+                          >
+                            Edit
+                          </DropdownMenuItem>
+                          <DropdownMenuItem
+                            className="text-destructive"
+                            onClick={() => setDeleting(item)}
+                          >
+                            Delete
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    </TableCell>
+                  )}
                 </TableRow>
               ))}
             </TableBody>
@@ -165,12 +300,36 @@ export default function AdditionalCategories() {
 
       <AdditionalCategoryModal
         open={modalOpen}
-        onOpenChange={setModalOpen}
-        additionalCategory={null}
+        onOpenChange={(o) => {
+          setModalOpen(o);
+          if (!o) setEditing(null);
+        }}
+        additionalCategory={editing}
         onSave={handleSave}
         thirdOptions={thirdOptions}
         additionalParentNames={additionalParentNames}
+        lockParent={Boolean(isSuperAdmin && editing)}
       />
+
+      <AlertDialog open={!!deleting} onOpenChange={(o) => !o && setDeleting(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete additional category?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This removes &quot;{deleting?.name}&quot; and nested children may be affected.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={() => deleting && deleteSuperMut.mutate(deleting.id)}
+            >
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </DashboardLayout>
   );
 }

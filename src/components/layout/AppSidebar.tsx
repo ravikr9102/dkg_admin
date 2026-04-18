@@ -91,6 +91,17 @@ export function AppSidebar() {
     return [
       { label: 'Dashboard', icon: LayoutDashboard, href: '/dashboard' },
       {
+        label: 'Category',
+        icon: FolderTree,
+        children: [
+          { label: 'Category List', href: '/categories', icon: List },
+          { label: 'Sub-Category List', href: '/sub-categories', icon: List },
+          { label: 'Third Sub-Category List', href: '/third-sub-categories', icon: List },
+          { label: 'Additional Category List', href: '/additional-categories', icon: List },
+        ],
+      },
+      { label: 'Hero banners', icon: ImageIcon, href: '/hero-banners' },
+      {
         label: 'Product',
         icon: Package,
         children: [{ label: 'Product List', href: '/products', icon: List }],
@@ -100,7 +111,13 @@ export function AppSidebar() {
         icon: Building2,
         children: [{ label: 'Venue List', href: '/venues', icon: List }],
       },
+      {
+        label: 'Blog',
+        icon: FileText,
+        children: [{ label: 'Blog List', href: '/blogs', icon: List }],
+      },
       { label: 'Users', icon: Users, href: '/users' },
+      { label: 'Orders', icon: ShoppingCart, href: '/orders' },
     ] as NavItem[];
   }, [isSuperAdmin]);
 
@@ -135,7 +152,7 @@ export function AppSidebar() {
 
       {/* Navigation */}
       <nav className="flex-1 px-3 py-4 space-y-1 overflow-y-auto">
-        {navItems.map((item) => {
+        {visibleNavItems.map((item) => {
           const Icon = item.icon;
           const hasChildren = item.children && item.children.length > 0;
           const isExpanded = expandedItems.includes(item.label);

@@ -32,6 +32,8 @@ import { OrderStatusModal } from '@/components/modals/FormModals';
 import { Order, OrderStatus } from '@/types';
 import { ShoppingCart } from 'lucide-react';
 import { getAdminOrders, updateAdminOrderStatus } from '@/api/admins';
+import { getSuperAdminOrders } from '@/api/superadmins';
+import { useAuth } from '@/contexts/AuthContext';
 import { apiAdminOrderToOrder } from '@/utils/mapOrder';
 import { toast } from '@/hooks/use-toast';
 import { ApiError } from '@/lib/api';
@@ -51,6 +53,7 @@ const STATUS_FILTERS: Array<OrderStatus | 'all'> = [
 const STATUS_CHIPS: OrderStatus[] = ['pending', 'confirmed', 'shipped', 'delivered', 'cancelled'];
 
 export default function Orders() {
+  const { isSuperAdmin } = useAuth();
   const navigate = useNavigate();
   const qc = useQueryClient();
   const [page, setPage] = useState(1);
@@ -61,10 +64,16 @@ export default function Orders() {
     order: null,
   });
 
+  const ordersQueryKey = isSuperAdmin
+    ? (['superadmin', 'orders', page, PAGE_SIZE] as const)
+    : (['admin', 'orders', page, PAGE_SIZE] as const);
+
   const { data, isLoading, isError, error, refetch } = useQuery({
-    queryKey: ['admin', 'orders', page, PAGE_SIZE],
+    queryKey: ordersQueryKey,
     queryFn: async () => {
-      const res = await getAdminOrders({ page, limit: PAGE_SIZE });
+      const res = isSuperAdmin
+        ? await getSuperAdminOrders({ page, limit: PAGE_SIZE })
+        : await getAdminOrders({ page, limit: PAGE_SIZE });
       return {
         orders: res.orders.map(apiAdminOrderToOrder),
         pagination: res.pagination,
@@ -77,9 +86,11 @@ export default function Orders() {
 
   /** Counts for chip row — first 50 orders (same filter as list API). */
   const { data: chipCounts } = useQuery({
-    queryKey: ['admin', 'orders', 'status-counts'],
+    queryKey: isSuperAdmin ? ['superadmin', 'orders', 'status-counts'] : ['admin', 'orders', 'status-counts'],
     queryFn: async () => {
-      const res = await getAdminOrders({ page: 1, limit: 50 });
+      const res = isSuperAdmin
+        ? await getSuperAdminOrders({ page: 1, limit: 50 })
+        : await getAdminOrders({ page: 1, limit: 50 });
       const mapped = res.orders.map(apiAdminOrderToOrder);
       const counts: Record<OrderStatus, number> = {
         pending: 0,
@@ -102,6 +113,7 @@ export default function Orders() {
       updateAdminOrderStatus(orderId, status),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['admin', 'orders'] });
+      qc.invalidateQueries({ queryKey: ['superadmin', 'orders'] });
       qc.invalidateQueries({ queryKey: ['admin', 'analytics'] });
       toast({ title: 'Order status updated' });
     },
@@ -133,7 +145,11 @@ export default function Orders() {
     <DashboardLayout>
       <PageHeader
         title="Orders"
-        description="GET /admins/orders · PUT /admins/orders/:orderId/status — orders that include your products"
+        description={
+          isSuperAdmin
+            ? 'GET /superadmins/orders — all platform orders (read-only)'
+            : 'GET /admins/orders · PUT /admins/orders/:orderId/status — orders that include your products'
+        }
       />
 
       {isError ? (
@@ -167,7 +183,9 @@ export default function Orders() {
           ))}
         </div>
         <p className="text-xs text-muted-foreground">
-          Counts reflect up to your 50 most recent orders. The table is paginated separately.
+          {isSuperAdmin
+            ? 'Counts reflect up to the 50 most recent platform orders. The table is paginated separately.'
+            : 'Counts reflect up to your 50 most recent orders. The table is paginated separately.'}
         </p>
       </div>
 
@@ -203,7 +221,11 @@ export default function Orders() {
           <EmptyState
             icon={<ShoppingCart className="h-8 w-8 text-muted-foreground" />}
             title="No orders found"
-            description="No orders match your filters on this page, or there are no orders with your products yet."
+            description={
+              isSuperAdmin
+                ? 'No orders match your filters on this page, or there are no orders yet.'
+                : 'No orders match your filters on this page, or there are no orders with your products yet.'
+            }
           />
         ) : (
           <Table>
@@ -263,10 +285,12 @@ export default function Orders() {
                           <Eye className="mr-2 h-4 w-4" />
                           View details
                         </DropdownMenuItem>
-                        <DropdownMenuItem onClick={() => setStatusModal({ open: true, order })}>
-                          <Edit className="mr-2 h-4 w-4" />
-                          Update status
-                        </DropdownMenuItem>
+                        {!isSuperAdmin ? (
+                          <DropdownMenuItem onClick={() => setStatusModal({ open: true, order })}>
+                            <Edit className="mr-2 h-4 w-4" />
+                            Update status
+                          </DropdownMenuItem>
+                        ) : null}
                       </DropdownMenuContent>
                     </DropdownMenu>
                   </TableCell>
@@ -307,7 +331,7 @@ export default function Orders() {
         </div>
       ) : null}
 
-      {statusModal.order ? (
+      {!isSuperAdmin && statusModal.order ? (
         <OrderStatusModal
           open={statusModal.open}
           onOpenChange={(open) => setStatusModal({ ...statusModal, open })}

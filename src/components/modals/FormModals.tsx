@@ -54,7 +54,7 @@ import {
   type CustomizationSectionFormRow,
 } from '@/components/product-form/CustomizationAddonsPanel';
 import { ImageDropzoneField, type ProductImageItem } from '@/components/product-form/ImageDropzoneField';
-import type { ProductImageSlot } from '@/api/admins';
+import type { ApiProductDoc, ApiVenueDoc, ProductImageSlot } from '@/api/admins';
 import { sanitizeMongoNamedRef } from '@/utils/productForm';
 
 function idsEqual(a: string, b: string) {
@@ -419,6 +419,8 @@ interface AdditionalCategoryModalProps {
   thirdOptions: { label: string; thirdName: string }[];
   /** Parent = additional: existing additional category names */
   additionalParentNames: string[];
+  /** Super-admin edit: parent is fixed; only name and banner change. */
+  lockParent?: boolean;
 }
 
 export function AdditionalCategoryModal({
@@ -428,6 +430,7 @@ export function AdditionalCategoryModal({
   onSave,
   thirdOptions,
   additionalParentNames,
+  lockParent = false,
 }: AdditionalCategoryModalProps) {
   const [parentModel, setParentModel] = useState<'ThirdCategory' | 'AdditionalCategory'>(
     'ThirdCategory'
@@ -483,6 +486,7 @@ export function AdditionalCategoryModal({
       description="Choose where it lives in the tree, then name it."
     >
       <form onSubmit={handleSubmit} className="space-y-4">
+        {!lockParent && (
         <div className="space-y-2">
           <Label>Parent type</Label>
           <Select
@@ -500,7 +504,8 @@ export function AdditionalCategoryModal({
             </SelectContent>
           </Select>
         </div>
-        {parentModel === 'ThirdCategory' ? (
+        )}
+        {!lockParent && parentModel === 'ThirdCategory' ? (
           <div className="space-y-2">
             <Label>Third sub-category</Label>
             <Select value={thirdName} onValueChange={setThirdName} required>
@@ -516,7 +521,7 @@ export function AdditionalCategoryModal({
               </SelectContent>
             </Select>
           </div>
-        ) : (
+        ) : !lockParent ? (
           <div className="space-y-2">
             <Label>Parent additional category</Label>
             <Select
@@ -543,7 +548,7 @@ export function AdditionalCategoryModal({
               </SelectContent>
             </Select>
           </div>
-        )}
+        ) : null}
         <div className="space-y-2">
           <Label htmlFor="addcat-name">Name</Label>
           <Input
@@ -638,6 +643,10 @@ interface ProductModalProps {
   thirdSubCategories: ThirdSubCategoryOption[];
   /** From GET /admins/category-tree — used for additional category dropdowns. */
   additionalCategoryOptions: AdditionalCategorySelectOption[];
+  /** When true with `editApiSource`, form is editable and saves via super-admin PUT. */
+  superEdit?: boolean;
+  /** Raw catalog row from GET /superadmins/products — hydrates fields for super edit. */
+  editApiSource?: ApiProductDoc | null;
 }
 
 export function ProductModal({
@@ -649,6 +658,8 @@ export function ProductModal({
   subCategories,
   thirdSubCategories,
   additionalCategoryOptions,
+  superEdit = false,
+  editApiSource = null,
 }: ProductModalProps) {
   const [formData, setFormData] = useState<ProductFormFields>(() => emptyProductForm());
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
@@ -684,9 +695,108 @@ export function ProductModal({
     return m;
   }, [additionalCategoryOptions]);
 
-  // Add flow: keep draft when dialog closes/reopens. View/edit: sync from `product` when set.
+  // Add flow: keep draft when dialog closes/reopens. View: sync from `product`. Super edit: full hydrate from API doc.
   useEffect(() => {
     if (!open || !product) return;
+    if (superEdit && editApiSource) {
+      const d = editApiSource;
+      const mainId = toIdString(
+        d.mainCategory && typeof d.mainCategory === 'object' && '_id' in (d.mainCategory as object)
+          ? (d.mainCategory as { _id: unknown })._id
+          : d.mainCategory
+      );
+      const subId = toIdString(
+        d.subCategory && typeof d.subCategory === 'object' && '_id' in (d.subCategory as object)
+          ? (d.subCategory as { _id: unknown })._id
+          : d.subCategory
+      );
+      const thirdId = toIdString(
+        d.thirdCategory && typeof d.thirdCategory === 'object' && '_id' in (d.thirdCategory as object)
+          ? (d.thirdCategory as { _id: unknown })._id
+          : d.thirdCategory
+      );
+      const tagsRaw = d.tags;
+      const tagsArr = Array.isArray(tagsRaw)
+        ? tagsRaw.map((t) => String(t))
+        : typeof tagsRaw === 'string'
+          ? tagsRaw.split(',').map((t) => t.trim()).filter(Boolean)
+          : [];
+      const inc = d.inclusions;
+      const inclusions = Array.isArray(inc) ? inc.map(String) : [];
+      const exp = d.experiences;
+      const experiences = Array.isArray(exp) ? exp.map(String) : [];
+      const kh = d.keyHighlights;
+      const keyHighlights = Array.isArray(kh) ? kh.map(String) : [];
+      const addl = d.additionalCategories;
+      const additionalCategories: string[] = [];
+      if (Array.isArray(addl)) {
+        for (const x of addl) {
+          if (x && typeof x === 'object' && 'name' in x) additionalCategories.push(String((x as { name: string }).name));
+          else if (typeof x === 'string') additionalCategories.push(x);
+        }
+      }
+      const sa = d.serviceableAreas;
+      const serviceableAreas =
+        Array.isArray(sa)
+          ? sa.map((a) => ({
+              city: String((a as { city?: string }).city ?? ''),
+              districts: Array.isArray((a as { districts?: string[] }).districts)
+                ? (a as { districts: string[] }).districts.map(String)
+                : [],
+            }))
+          : [];
+      const cs = d.customizationSections;
+      const customizationSections: CustomizationSectionFormRow[] = Array.isArray(cs)
+        ? cs.map((row) => ({
+            id: String((row as { _id?: string })._id ?? `sec-${Date.now()}-${Math.random().toString(36).slice(2)}`),
+            name: String((row as { name?: string }).name ?? ''),
+            priority: Number((row as { priority?: number }).priority ?? 0),
+            addons: Array.isArray((row as { addons?: unknown[] }).addons)
+              ? (row as { addons: { addon?: { name?: string }; name?: string }[] }).addons.map((ad) => ({
+                  name: String(ad.addon?.name ?? ad.name ?? ''),
+                }))
+              : [],
+          }))
+        : [];
+      setFormData({
+        ...emptyProductForm(),
+        name: String(d.name ?? ''),
+        description: String(d.description ?? ''),
+        price: d.price != null ? String(d.price) : '',
+        discountedPrice:
+          d.discountedPrice != null && d.discountedPrice !== ''
+            ? String(d.discountedPrice)
+            : '',
+        categoryId: mainId,
+        subCategoryId: subId,
+        thirdSubCategoryId: thirdId,
+        featured: Boolean(d.isFeatured),
+        tier: d.tier === 'premium' ? 'premium' : 'standard',
+        imageItems: Array.isArray(d.images)
+          ? (d.images as string[]).map((url, i) => ({
+              id: `existing-url-${i}-${String(url).slice(0, 24)}`,
+              kind: 'url' as const,
+              url,
+            }))
+          : [],
+        tags: tagsArr,
+        inclusions,
+        experiences,
+        keyHighlights,
+        additionalCategories,
+        customizationSections,
+        serviceableAreas,
+        location: String((d as { location?: string }).location ?? ''),
+        setupDuration: String((d as { setupDuration?: string }).setupDuration ?? ''),
+        teamSize: String((d as { teamSize?: string }).teamSize ?? ''),
+        advanceBooking: String((d as { advanceBooking?: string }).advanceBooking ?? ''),
+        cancellationPolicy: String((d as { cancellationPolicy?: string }).cancellationPolicy ?? ''),
+        youtubeVideoLink: String((d as { youtubeVideoLink?: string }).youtubeVideoLink ?? ''),
+      });
+      setFieldErrors({});
+      setAdditionalSelectKey((k) => k + 1);
+      return;
+    }
     setFormData({
       ...emptyProductForm(),
       name: product.name ?? '',
@@ -706,14 +816,14 @@ export function ProductModal({
         : [],
     });
     setFieldErrors({});
-  }, [open, product]);
+  }, [open, product, superEdit, editApiSource]);
 
   const chipReject = (msg: string) => toast({ title: msg, variant: 'destructive' });
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     setFieldErrors({});
-    if (product) {
+    if (product && !superEdit) {
       toast({ title: 'Editing products is not available for admin API', variant: 'destructive' });
       return;
     }
@@ -860,23 +970,25 @@ export function ProductModal({
       youtubeVideoLink: formData.youtubeVideoLink.trim(),
     });
     onOpenChange(false);
-    if (!product) {
+    if (!product || superEdit) {
       setFormData(emptyProductForm());
       setFieldErrors({});
     }
   };
 
-  const dis = !!product;
+  const fieldsDisabled = Boolean(product && !superEdit);
 
   return (
     <Modal
       open={open}
       onOpenChange={onOpenChange}
-      title={product ? 'View Product' : 'Add Product'}
+      title={product ? (superEdit ? 'Edit Product' : 'View Product') : 'Add Product'}
       description={
-        product
-          ? 'Product editing uses the super-admin API in the backend.'
-          : 'All fields map to POST /admins/addproducts (JSON or multipart when images are uploaded). Names must exist in Mongo (additional categories, sections, addons).'
+        product && !superEdit
+          ? 'Vendor admins cannot edit products here. Log in as super admin to change catalog items.'
+          : superEdit
+            ? 'Saves with PUT /superadmins/edit-product/:id (category names resolved on the server).'
+            : 'All fields map to POST /admins/addproducts (JSON or multipart when images are uploaded). Names must exist in Mongo (additional categories, sections, addons).'
       }
       contentClassName="max-w-4xl"
     >
@@ -894,7 +1006,7 @@ export function ProductModal({
                 value={formData.name}
                 onChange={(e) => setFormData({ ...formData, name: e.target.value })}
                 placeholder="e.g. Premium rooftop dinner for two"
-                disabled={dis}
+                disabled={fieldsDisabled}
                 className={cn(fieldErrors.name && 'border-destructive')}
               />
               {fieldErrors.name ? <p className="text-sm text-destructive">{fieldErrors.name}</p> : null}
@@ -907,7 +1019,7 @@ export function ProductModal({
                 onChange={(e) => setFormData({ ...formData, description: e.target.value })}
                 placeholder="Full product description for listings"
                 rows={4}
-                disabled={dis}
+                disabled={fieldsDisabled}
                 className={cn(fieldErrors.description && 'border-destructive')}
               />
               {fieldErrors.description ? (
@@ -941,7 +1053,7 @@ export function ProductModal({
                   });
                 }}
                 placeholder="0.00"
-                disabled={dis}
+                disabled={fieldsDisabled}
                 className={cn(fieldErrors.price && 'border-destructive')}
               />
               {fieldErrors.price ? <p className="text-sm text-destructive">{fieldErrors.price}</p> : null}
@@ -977,7 +1089,7 @@ export function ProductModal({
                   });
                 }}
                 placeholder="Leave blank if not discounted"
-                disabled={dis}
+                disabled={fieldsDisabled}
                 className={cn(fieldErrors.discountedPrice && 'border-destructive')}
               />
               <p className="text-xs text-muted-foreground">
@@ -992,7 +1104,7 @@ export function ProductModal({
               <Select
                 value={formData.tier}
                 onValueChange={(val) => setFormData({ ...formData, tier: val })}
-                disabled={dis}
+                disabled={fieldsDisabled}
               >
                 <SelectTrigger>
                   <SelectValue placeholder="Tier" />
@@ -1008,7 +1120,7 @@ export function ProductModal({
                 id="featured"
                 checked={formData.featured}
                 onCheckedChange={(c) => setFormData({ ...formData, featured: c === true })}
-                disabled={dis}
+                disabled={fieldsDisabled}
               />
               <div>
                 <Label htmlFor="featured" className="cursor-pointer">
@@ -1038,7 +1150,7 @@ export function ProductModal({
                     thirdSubCategoryId: '',
                   })
                 }
-                disabled={dis}
+                disabled={fieldsDisabled}
               >
                 <SelectTrigger className={cn(fieldErrors.categoryId && 'border-destructive')}>
                   <SelectValue placeholder="Select main" />
@@ -1062,7 +1174,7 @@ export function ProductModal({
                 onValueChange={(val) =>
                   setFormData({ ...formData, subCategoryId: val, thirdSubCategoryId: '' })
                 }
-                disabled={!formData.categoryId || dis || filteredSubCategories.length === 0}
+                disabled={!formData.categoryId || fieldsDisabled || filteredSubCategories.length === 0}
               >
                 <SelectTrigger className={cn(fieldErrors.subCategoryId && 'border-destructive')}>
                   <SelectValue
@@ -1097,7 +1209,7 @@ export function ProductModal({
               <Select
                 value={formData.thirdSubCategoryId || undefined}
                 onValueChange={(val) => setFormData({ ...formData, thirdSubCategoryId: val })}
-                disabled={!formData.subCategoryId || dis || filteredThirdSub.length === 0}
+                disabled={!formData.subCategoryId || fieldsDisabled || filteredThirdSub.length === 0}
               >
                 <SelectTrigger className={cn(fieldErrors.thirdSubCategoryId && 'border-destructive')}>
                   <SelectValue
@@ -1148,7 +1260,7 @@ export function ProductModal({
                 <>
                   <Select
                     key={additionalSelectKey}
-                    disabled={dis || additionalCategoriesAvailableToAdd.length === 0}
+                    disabled={fieldsDisabled || additionalCategoriesAvailableToAdd.length === 0}
                     onValueChange={(name) => {
                       if (!name || formData.additionalCategories.includes(name)) return;
                       setFormData((prev) => ({
@@ -1187,7 +1299,7 @@ export function ProductModal({
                           <span className="truncate">{name}</span>
                           <button
                             type="button"
-                            disabled={dis}
+                            disabled={fieldsDisabled}
                             className="rounded-sm p-0.5 hover:bg-muted-foreground/20 disabled:opacity-50"
                             onClick={() =>
                               setFormData((prev) => ({
@@ -1214,7 +1326,7 @@ export function ProductModal({
           onSectionsChange={(next) => setFormData({ ...formData, customizationSections: next })}
           sanitize={sanitizeMongoNamedRef}
           onReject={chipReject}
-          disabled={dis}
+          disabled={fieldsDisabled}
         />
 
         <FormSectionCard
@@ -1225,7 +1337,7 @@ export function ProductModal({
           <ImageDropzoneField
             items={formData.imageItems}
             onChange={(next) => setFormData({ ...formData, imageItems: next })}
-            disabled={dis}
+            disabled={fieldsDisabled}
             error={fieldErrors.images}
           />
         </FormSectionCard>
@@ -1243,7 +1355,7 @@ export function ProductModal({
                 value={formData.location}
                 onChange={(e) => setFormData({ ...formData, location: e.target.value })}
                 placeholder="Primary location label"
-                disabled={dis}
+                disabled={fieldsDisabled}
               />
             </div>
             <div className="space-y-2">
@@ -1253,7 +1365,7 @@ export function ProductModal({
                 value={formData.setupDuration}
                 onChange={(e) => setFormData({ ...formData, setupDuration: e.target.value })}
                 placeholder="e.g. 2 hours"
-                disabled={dis}
+                disabled={fieldsDisabled}
               />
             </div>
             <div className="space-y-2">
@@ -1263,7 +1375,7 @@ export function ProductModal({
                 value={formData.teamSize}
                 onChange={(e) => setFormData({ ...formData, teamSize: e.target.value })}
                 placeholder="e.g. 3 staff"
-                disabled={dis}
+                disabled={fieldsDisabled}
               />
             </div>
             <div className="space-y-2 sm:col-span-2">
@@ -1273,7 +1385,7 @@ export function ProductModal({
                 value={formData.advanceBooking}
                 onChange={(e) => setFormData({ ...formData, advanceBooking: e.target.value })}
                 placeholder="e.g. 48 hours notice"
-                disabled={dis}
+                disabled={fieldsDisabled}
               />
             </div>
             <div className="space-y-2 sm:col-span-2">
@@ -1284,7 +1396,7 @@ export function ProductModal({
                 onChange={(e) => setFormData({ ...formData, cancellationPolicy: e.target.value })}
                 placeholder="Policy text"
                 rows={3}
-                disabled={dis}
+                disabled={fieldsDisabled}
               />
             </div>
             <div className="space-y-2 sm:col-span-2">
@@ -1294,7 +1406,7 @@ export function ProductModal({
                 value={formData.youtubeVideoLink}
                 onChange={(e) => setFormData({ ...formData, youtubeVideoLink: e.target.value })}
                 placeholder="https://www.youtube.com/..."
-                disabled={dis}
+                disabled={fieldsDisabled}
               />
             </div>
           </div>
@@ -1316,7 +1428,7 @@ export function ProductModal({
                     variant="ghost"
                     size="sm"
                     className="text-destructive"
-                    disabled={dis}
+                    disabled={fieldsDisabled}
                     onClick={() =>
                       setFormData({
                         ...formData,
@@ -1337,7 +1449,7 @@ export function ProductModal({
                       setFormData({ ...formData, serviceableAreas: next });
                     }}
                     placeholder="e.g. Mumbai"
-                    disabled={dis}
+                    disabled={fieldsDisabled}
                   />
                 </div>
                 <ChipListField
@@ -1350,7 +1462,7 @@ export function ProductModal({
                     next[idx] = { ...next[idx], districts };
                     setFormData({ ...formData, serviceableAreas: next });
                   }}
-                  disabled={dis}
+                  disabled={fieldsDisabled}
                 />
               </Card>
             ))}
@@ -1358,7 +1470,7 @@ export function ProductModal({
               type="button"
               variant="outline"
               size="sm"
-              disabled={dis}
+              disabled={fieldsDisabled}
               onClick={() =>
                 setFormData({
                   ...formData,
@@ -1382,7 +1494,7 @@ export function ProductModal({
             placeholder="e.g. Welcome drinks"
             values={formData.inclusions}
             onChange={(next) => setFormData({ ...formData, inclusions: next })}
-            disabled={dis}
+            disabled={fieldsDisabled}
           />
           <ChipListField
             label="Experiences"
@@ -1390,7 +1502,7 @@ export function ProductModal({
             placeholder="e.g. Live music"
             values={formData.experiences}
             onChange={(next) => setFormData({ ...formData, experiences: next })}
-            disabled={dis}
+            disabled={fieldsDisabled}
           />
           <ChipListField
             label="Key highlights"
@@ -1398,7 +1510,7 @@ export function ProductModal({
             placeholder="e.g. Sea view seating"
             values={formData.keyHighlights}
             onChange={(next) => setFormData({ ...formData, keyHighlights: next })}
-            disabled={dis}
+            disabled={fieldsDisabled}
           />
           <ChipListField
             label="Tags"
@@ -1406,15 +1518,17 @@ export function ProductModal({
             placeholder="e.g. wedding"
             values={formData.tags}
             onChange={(next) => setFormData({ ...formData, tags: next })}
-            disabled={dis}
+            disabled={fieldsDisabled}
           />
         </FormSectionCard>
 
         <DialogFooter>
           <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
-            {product ? 'Close' : 'Cancel'}
+            {product && !superEdit ? 'Close' : 'Cancel'}
           </Button>
-          {!product && <Button type="submit">Create Product</Button>}
+          {(!product || superEdit) && (
+            <Button type="submit">{superEdit ? 'Save changes' : 'Create Product'}</Button>
+          )}
         </DialogFooter>
       </form>
     </Modal>
@@ -1742,15 +1856,26 @@ export type VenueSavePayload = {
   capacityMin?: string;
   capacityMax?: string;
   imageFiles: File[];
+  /** Super-admin edit: existing gallery URLs to keep when adding new files. */
+  existingImageUrls?: string[];
 };
 
 interface VenueModalProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onSave: (data: VenueSavePayload) => void;
+  /** When set, form loads venue data and save updates via super-admin API. */
+  initialVenue?: ApiVenueDoc | null;
+  mode?: 'create' | 'superEdit';
 }
 
-export function VenueModal({ open, onOpenChange, onSave }: VenueModalProps) {
+export function VenueModal({
+  open,
+  onOpenChange,
+  onSave,
+  initialVenue = null,
+  mode = 'create',
+}: VenueModalProps) {
   const [formData, setFormData] = useState({
     name: '',
     description: '',
@@ -1771,6 +1896,32 @@ export function VenueModal({ open, onOpenChange, onSave }: VenueModalProps) {
 
   useEffect(() => {
     if (!open) return;
+    if (mode === 'superEdit' && initialVenue) {
+      const v = initialVenue;
+      const loc = v.location;
+      const oi = v.otherInformation;
+      setFormData({
+        name: v.name ?? '',
+        description: v.description ?? '',
+        address: loc?.address ?? '',
+        lat: loc?.lat != null ? String(loc.lat) : '',
+        lng: loc?.lng != null ? String(loc.lng) : '',
+        startingPrice: v.startingPrice != null ? String(v.startingPrice) : '',
+        typesOfVenues: Array.isArray(v.typesOfVenues) ? v.typesOfVenues.join(', ') : '',
+        facilities: Array.isArray(v.facilities) ? v.facilities.join(', ') : '',
+        accessibilityFeatures: Array.isArray(v.accessibilityFeatures)
+          ? v.accessibilityFeatures.join(', ')
+          : '',
+        restrictions: Array.isArray(v.restrictions) ? v.restrictions.join(', ') : '',
+        inHouseDecor: Boolean(oi?.inHouseDecor),
+        advanceBookingWeeks:
+          oi?.advanceBookingWeeks != null ? String(oi.advanceBookingWeeks) : '',
+        capacityMin: v.capacity?.min != null ? String(v.capacity.min) : '',
+        capacityMax: v.capacity?.max != null ? String(v.capacity.max) : '',
+      });
+      setImageFiles([]);
+      return;
+    }
     setFormData({
       name: '',
       description: '',
@@ -1788,7 +1939,7 @@ export function VenueModal({ open, onOpenChange, onSave }: VenueModalProps) {
       capacityMax: '',
     });
     setImageFiles([]);
-  }, [open]);
+  }, [open, mode, initialVenue]);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -1808,6 +1959,9 @@ export function VenueModal({ open, onOpenChange, onSave }: VenueModalProps) {
       capacityMin: formData.capacityMin,
       capacityMax: formData.capacityMax,
       imageFiles,
+      ...(mode === 'superEdit' && initialVenue?.images?.length
+        ? { existingImageUrls: [...initialVenue.images] }
+        : {}),
     });
   };
 
@@ -1815,7 +1969,7 @@ export function VenueModal({ open, onOpenChange, onSave }: VenueModalProps) {
     <Modal
       open={open}
       onOpenChange={onOpenChange}
-      title="Add Venue"
+      title={mode === 'superEdit' ? 'Edit Venue' : 'Add Venue'}
       contentClassName="max-w-3xl w-[min(100vw-1.5rem,48rem)]"
     >
       <form onSubmit={handleSubmit} className="space-y-4">
@@ -1967,11 +2121,17 @@ export function VenueModal({ open, onOpenChange, onSave }: VenueModalProps) {
           </div>
         </div>
         <VenueImagesField files={imageFiles} onChange={setImageFiles} maxFiles={10} id="venue-images-upload" />
+        {mode === 'superEdit' && initialVenue?.images && initialVenue.images.length > 0 ? (
+          <p className="text-xs text-muted-foreground">
+            Current gallery has {initialVenue.images.length} image(s). Upload below to add more; existing URLs are
+            kept unless you replace images via the API separately.
+          </p>
+        ) : null}
         <DialogFooter className="pt-2 border-t border-border/60 mt-2">
           <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
             Cancel
           </Button>
-          <Button type="submit">Create Venue</Button>
+          <Button type="submit">{mode === 'superEdit' ? 'Save changes' : 'Create Venue'}</Button>
         </DialogFooter>
       </form>
     </Modal>

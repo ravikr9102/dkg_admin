@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Plus, Search, MapPin, Building2 } from 'lucide-react';
+import { Plus, Search, MapPin, Building2, MoreHorizontal } from 'lucide-react';
 import { DashboardLayout } from '@/components/layout/DashboardLayout';
 import { PageHeader, DataTableWrapper, EmptyState } from '@/components/shared/PageComponents';
 import { Button } from '@/components/ui/button';
@@ -15,9 +15,25 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 import { VenueModal, type VenueSavePayload } from '@/components/modals/FormModals';
 import { createVenue, getAdminVenues, type ApiVenueDoc } from '@/api/admins';
-import { getSuperAdminVenues } from '@/api/superadmins';
+import { getSuperAdminVenues, superAdminUpdateVenue, superAdminDeleteVenue } from '@/api/superadmins';
 import { useAuth } from '@/contexts/AuthContext';
 import { toast } from '@/hooks/use-toast';
 import { ApiError } from '@/lib/api';
@@ -41,6 +57,8 @@ export default function Venues() {
   const navigate = useNavigate();
   const [search, setSearch] = useState('');
   const [modalOpen, setModalOpen] = useState(false);
+  const [editingVenue, setEditingVenue] = useState<ApiVenueDoc | null>(null);
+  const [deletingVenue, setDeletingVenue] = useState<ApiVenueDoc | null>(null);
 
   useEffect(() => {
     if (isSuperAdmin) return;
@@ -76,6 +94,37 @@ export default function Venues() {
     },
   });
 
+  const superUpdateMut = useMutation({
+    mutationFn: ({ id, data }: { id: string; data: VenueSavePayload }) =>
+      superAdminUpdateVenue(id, data),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['superadmin', 'venues'] });
+      toast({ title: 'Venue updated' });
+      setEditingVenue(null);
+    },
+    onError: (err) => {
+      toast({
+        title: err instanceof ApiError ? err.message : 'Update failed',
+        variant: 'destructive',
+      });
+    },
+  });
+
+  const superDeleteMut = useMutation({
+    mutationFn: (id: string) => superAdminDeleteVenue(id),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['superadmin', 'venues'] });
+      toast({ title: 'Venue deleted' });
+      setDeletingVenue(null);
+    },
+    onError: (err) => {
+      toast({
+        title: err instanceof ApiError ? err.message : 'Delete failed',
+        variant: 'destructive',
+      });
+    },
+  });
+
   const filtered = rows.filter(
     (r) =>
       r.name.toLowerCase().includes(search.toLowerCase()) ||
@@ -83,6 +132,11 @@ export default function Venues() {
   );
 
   const handleSave = (data: VenueSavePayload) => {
+    if (isSuperAdmin && editingVenue) {
+      superUpdateMut.mutate({ id: String(editingVenue._id), data });
+      return;
+    }
+
     const typesOfVenues = (data.typesOfVenues ?? '')
       .split(',')
       .map((t) => t.trim())
@@ -163,8 +217,8 @@ export default function Venues() {
         title="Venues"
         description={
           isSuperAdmin
-            ? 'GET /superadmins/venues — platform-wide list (read-only in this UI).'
-            : 'GET /admins/venues · POST /admins/add-venue (multipart, up to 10 images). No edit or delete in admin UI.'
+            ? 'GET /superadmins/venues — edit or delete venues (PUT/DELETE /superadmins/edit-venue|delete-venue).'
+            : 'GET /admins/venues · POST /admins/add-venue (multipart, up to 10 images).'
         }
       >
         {!isSuperAdmin ? (
@@ -214,36 +268,60 @@ export default function Venues() {
                 <TableHead>Images</TableHead>
                 <TableHead>Tags</TableHead>
                 <TableHead>Created</TableHead>
+                {isSuperAdmin && <TableHead className="text-right">Actions</TableHead>}
               </TableRow>
             </TableHeader>
             <TableBody>
-              {filtered.map((row) => (
-                <TableRow key={row.id} className="animate-fade-in">
-                  <TableCell>
-                    <div>
-                      <p className="font-medium">{row.name}</p>
-                    </div>
-                  </TableCell>
-                  <TableCell>
-                    <div className="flex items-start gap-1.5 text-sm text-muted-foreground max-w-xs">
-                      <MapPin className="w-3.5 h-3.5 mt-0.5 shrink-0" />
-                      <span className="line-clamp-2">{row.address}</span>
-                    </div>
-                  </TableCell>
-                  <TableCell className="text-sm">₹{row.startingPrice.toLocaleString()}</TableCell>
-                  <TableCell className="text-sm">{row.imageCount}</TableCell>
-                  <TableCell>
-                    <div className="flex gap-1 flex-wrap">
-                      {row.tags.map((tag, idx) => (
-                        <Badge key={idx} variant="secondary" className="text-xs">
-                          {tag}
-                        </Badge>
-                      ))}
-                    </div>
-                  </TableCell>
-                  <TableCell>{row.createdAt}</TableCell>
-                </TableRow>
-              ))}
+              {filtered.map((row) => {
+                const raw = rawVenues.find((v) => String(v._id) === row.id);
+                return (
+                  <TableRow key={row.id} className="animate-fade-in">
+                    <TableCell>
+                      <div>
+                        <p className="font-medium">{row.name}</p>
+                      </div>
+                    </TableCell>
+                    <TableCell>
+                      <div className="flex items-start gap-1.5 text-sm text-muted-foreground max-w-xs">
+                        <MapPin className="w-3.5 h-3.5 mt-0.5 shrink-0" />
+                        <span className="line-clamp-2">{row.address}</span>
+                      </div>
+                    </TableCell>
+                    <TableCell className="text-sm">₹{row.startingPrice.toLocaleString()}</TableCell>
+                    <TableCell className="text-sm">{row.imageCount}</TableCell>
+                    <TableCell>
+                      <div className="flex gap-1 flex-wrap">
+                        {row.tags.map((tag, idx) => (
+                          <Badge key={idx} variant="secondary" className="text-xs">
+                            {tag}
+                          </Badge>
+                        ))}
+                      </div>
+                    </TableCell>
+                    <TableCell>{row.createdAt}</TableCell>
+                    {isSuperAdmin && raw ? (
+                      <TableCell className="text-right">
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <Button variant="ghost" size="icon" aria-label="Actions">
+                              <MoreHorizontal className="w-4 h-4" />
+                            </Button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end">
+                            <DropdownMenuItem onClick={() => setEditingVenue(raw)}>Edit</DropdownMenuItem>
+                            <DropdownMenuItem
+                              className="text-destructive"
+                              onClick={() => setDeletingVenue(raw)}
+                            >
+                              Delete
+                            </DropdownMenuItem>
+                          </DropdownMenuContent>
+                        </DropdownMenu>
+                      </TableCell>
+                    ) : null}
+                  </TableRow>
+                );
+              })}
             </TableBody>
           </Table>
         )}
@@ -252,6 +330,36 @@ export default function Venues() {
       {!isSuperAdmin ? (
         <VenueModal open={modalOpen} onOpenChange={setModalOpen} onSave={handleSave} />
       ) : null}
+
+      {isSuperAdmin ? (
+        <VenueModal
+          open={!!editingVenue}
+          onOpenChange={(o) => !o && setEditingVenue(null)}
+          onSave={handleSave}
+          initialVenue={editingVenue}
+          mode={editingVenue ? 'superEdit' : 'create'}
+        />
+      ) : null}
+
+      <AlertDialog open={!!deletingVenue} onOpenChange={(o) => !o && setDeletingVenue(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete venue?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This removes &quot;{deletingVenue?.name}&quot; from the platform.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={() => deletingVenue && superDeleteMut.mutate(String(deletingVenue._id))}
+            >
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </DashboardLayout>
   );
 }

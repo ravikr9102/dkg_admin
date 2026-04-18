@@ -1,4 +1,5 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Plus, Search, MoreHorizontal, Edit, Trash2, Eye } from 'lucide-react';
 import { DashboardLayout } from '@/components/layout/DashboardLayout';
@@ -30,23 +31,49 @@ import {
   updateBlog,
   type UpdateBlogBody,
 } from '@/api/admins';
+import {
+  getSuperAdminBlog,
+  getSuperAdminBlogs,
+  superAdminDeleteBlog,
+  superAdminUpdateBlog,
+} from '@/api/superadmins';
+import { useAuth } from '@/contexts/AuthContext';
 import { apiBlogToBlog } from '@/utils/mapEntity';
 import { toast } from '@/hooks/use-toast';
 import { ApiError } from '@/lib/api';
 
 export default function Blogs() {
+  const { isSuperAdmin } = useAuth();
   const qc = useQueryClient();
+  const location = useLocation();
+  const navigate = useNavigate();
   const [search, setSearch] = useState('');
   const [modalOpen, setModalOpen] = useState(false);
   const [editBlog, setEditBlog] = useState<Blog | null>(null);
+  const [fetchingEdit, setFetchingEdit] = useState(false);
   const [deleteModal, setDeleteModal] = useState<{ open: boolean; item: Blog | null }>({
     open: false,
     item: null,
   });
 
+  const blogListKey = isSuperAdmin ? (['superadmin', 'blogs'] as const) : (['admin', 'blogs'] as const);
+
+  useEffect(() => {
+    if (!isSuperAdmin) return;
+    if (location.pathname === '/blogs/add') {
+      navigate('/blogs', { replace: true });
+    }
+  }, [location.pathname, navigate, isSuperAdmin]);
+
   const { data: rawBlogs = [], isLoading } = useQuery({
-    queryKey: ['admin', 'blogs'],
-    queryFn: async () => (await getAdminBlogs()).blogs,
+    queryKey: blogListKey,
+    queryFn: async () => {
+      if (isSuperAdmin) {
+        const r = await getSuperAdminBlogs({ page: 1, limit: 100 });
+        return r.blogs;
+      }
+      return (await getAdminBlogs()).blogs;
+    },
   });
 
   const blogs: Blog[] = rawBlogs.map((b) => apiBlogToBlog(b));
@@ -54,7 +81,7 @@ export default function Blogs() {
   const createMut = useMutation({
     mutationFn: createBlog,
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['admin', 'blogs'] });
+      qc.invalidateQueries({ queryKey: blogListKey });
       toast({ title: 'Blog created' });
     },
     onError: (err) => {
@@ -64,9 +91,10 @@ export default function Blogs() {
   });
 
   const updateMut = useMutation({
-    mutationFn: ({ id, body }: { id: string; body: UpdateBlogBody }) => updateBlog(id, body),
+    mutationFn: ({ id, body }: { id: string; body: UpdateBlogBody }) =>
+      isSuperAdmin ? superAdminUpdateBlog(id, body) : updateBlog(id, body),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['admin', 'blogs'] });
+      qc.invalidateQueries({ queryKey: blogListKey });
       toast({ title: 'Blog updated' });
     },
     onError: (err) => {
@@ -76,9 +104,9 @@ export default function Blogs() {
   });
 
   const deleteMut = useMutation({
-    mutationFn: deleteBlog,
+    mutationFn: (id: string) => (isSuperAdmin ? superAdminDeleteBlog(id) : deleteBlog(id)),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['admin', 'blogs'] });
+      qc.invalidateQueries({ queryKey: blogListKey });
       toast({ title: 'Blog deleted' });
     },
     onError: (err) => {
@@ -113,6 +141,10 @@ export default function Blogs() {
       }
       updateMut.mutate({ id: editBlog.id, body });
     } else {
+      if (isSuperAdmin) {
+        toast({ title: 'Super admins cannot create blogs from this panel.', variant: 'destructive' });
+        return;
+      }
       if (!(data.coverFile instanceof File)) {
         toast({ title: 'Featured image is required', variant: 'destructive' });
         return;
@@ -141,27 +173,46 @@ export default function Blogs() {
     }
   };
 
-  const handleEdit = (blog: Blog) => {
-    setEditBlog(blog);
+  const handleEdit = async (blog: Blog) => {
+    if (isSuperAdmin) {
+      setFetchingEdit(true);
+      try {
+        const { blog: raw } = await getSuperAdminBlog(blog.id);
+        setEditBlog(apiBlogToBlog(raw));
+      } catch (e) {
+        toast({
+          title: e instanceof ApiError ? e.message : 'Failed to load blog',
+          variant: 'destructive',
+        });
+        return;
+      } finally {
+        setFetchingEdit(false);
+      }
+    } else {
+      setEditBlog(blog);
+    }
     setModalOpen(true);
   };
 
+  const apiDescription = isSuperAdmin
+    ? 'GET /superadmins/blogs · GET /superadmins/blogs/:id · PUT /superadmins/blogs/:id · DELETE /superadmins/blogs/:id'
+    : 'GET /admins/blogs · POST /admins/create-blog (multipart) · PUT /admins/edit-blog/:id · DELETE /admins/delete-blog/:id';
+
   return (
     <DashboardLayout>
-      <PageHeader
-        title="Blogs"
-        description="GET /admins/blogs · POST /admins/create-blog (multipart) · PUT /admins/edit-blog/:id · DELETE /admins/delete-blog/:id"
-      >
-        <Button
-          onClick={() => {
-            setEditBlog(null);
-            setModalOpen(true);
-          }}
-          disabled={createMut.isPending}
-        >
-          <Plus className="w-4 h-4" />
-          Add Blog
-        </Button>
+      <PageHeader title="Blogs" description={apiDescription}>
+        {!isSuperAdmin ? (
+          <Button
+            onClick={() => {
+              setEditBlog(null);
+              setModalOpen(true);
+            }}
+            disabled={createMut.isPending}
+          >
+            <Plus className="w-4 h-4" />
+            Add Blog
+          </Button>
+        ) : null}
       </PageHeader>
 
       <div className="flex items-center gap-4 mb-6">
@@ -183,12 +234,14 @@ export default function Blogs() {
           <EmptyState
             icon={<FileText className="w-8 h-8 text-muted-foreground" />}
             title="No blogs found"
-            description="Create a blog post."
+            description={isSuperAdmin ? 'No blog posts yet.' : 'Create a blog post.'}
             action={
-              <Button onClick={() => setModalOpen(true)}>
-                <Plus className="w-4 h-4" />
-                Add Blog
-              </Button>
+              !isSuperAdmin ? (
+                <Button onClick={() => setModalOpen(true)}>
+                  <Plus className="w-4 h-4" />
+                  Add Blog
+                </Button>
+              ) : undefined
             }
           />
         ) : (
@@ -242,7 +295,7 @@ export default function Blogs() {
                   <TableCell className="text-right">
                     <DropdownMenu>
                       <DropdownMenuTrigger asChild>
-                        <Button variant="ghost" size="icon">
+                        <Button variant="ghost" size="icon" disabled={fetchingEdit}>
                           <MoreHorizontal className="w-4 h-4" />
                         </Button>
                       </DropdownMenuTrigger>

@@ -51,6 +51,8 @@ export interface AdditionalCategory {
   id: string;
   name: string;
   slug: string;
+  /** Immediate parent document id (third or additional), when the API sends it. */
+  parentCategoryId?: string;
   parentName: string;
   parentModel: 'ThirdCategory' | 'AdditionalCategory';
   level: number;

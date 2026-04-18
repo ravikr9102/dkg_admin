@@ -10,6 +10,8 @@ import { Separator } from '@/components/ui/separator';
 import { OrderStatusModal } from '@/components/modals/FormModals';
 import { OrderStatus } from '@/types';
 import { getAdminOrder, updateAdminOrderStatus, type ApiAdminOrder } from '@/api/admins';
+import { getSuperAdminOrder } from '@/api/superadmins';
+import { useAuth } from '@/contexts/AuthContext';
 import { toast } from '@/hooks/use-toast';
 import { ApiError } from '@/lib/api';
 import { useState } from 'react';
@@ -19,9 +21,14 @@ function formatMoney(n: number) {
 }
 
 export default function OrderDetail() {
+  const { isSuperAdmin } = useAuth();
   const { orderId } = useParams<{ orderId: string }>();
   const qc = useQueryClient();
   const [statusOpen, setStatusOpen] = useState(false);
+
+  const orderQueryKey = isSuperAdmin
+    ? (['superadmin', 'order', orderId] as const)
+    : (['admin', 'order', orderId] as const);
 
   const {
     data,
@@ -30,8 +37,11 @@ export default function OrderDetail() {
     error,
     refetch,
   } = useQuery({
-    queryKey: ['admin', 'order', orderId],
-    queryFn: async () => (await getAdminOrder(orderId!)).order,
+    queryKey: orderQueryKey,
+    queryFn: async () =>
+      isSuperAdmin
+        ? (await getSuperAdminOrder(orderId!)).order
+        : (await getAdminOrder(orderId!)).order,
     enabled: Boolean(orderId),
   });
 
@@ -40,7 +50,9 @@ export default function OrderDetail() {
       updateAdminOrderStatus(id, status),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['admin', 'order', orderId] });
+      qc.invalidateQueries({ queryKey: ['superadmin', 'order', orderId] });
       qc.invalidateQueries({ queryKey: ['admin', 'orders'] });
+      qc.invalidateQueries({ queryKey: ['superadmin', 'orders'] });
       qc.invalidateQueries({ queryKey: ['admin', 'analytics'] });
       toast({ title: 'Order status updated' });
       setStatusOpen(false);
@@ -74,7 +86,9 @@ export default function OrderDetail() {
         </Button>
         <PageHeader
           title={order?.orderNumber ?? 'Order'}
-          description="GET /admins/orders/:orderId"
+          description={
+            isSuperAdmin ? 'GET /superadmins/orders/:orderId (read-only)' : 'GET /admins/orders/:orderId'
+          }
         />
       </div>
 
@@ -99,9 +113,11 @@ export default function OrderDetail() {
             <span className="text-sm text-muted-foreground">
               Updated {new Date(order.updatedAt).toLocaleString()}
             </span>
-            <Button type="button" size="sm" onClick={() => setStatusOpen(true)}>
-              Update status
-            </Button>
+            {!isSuperAdmin ? (
+              <Button type="button" size="sm" onClick={() => setStatusOpen(true)}>
+                Update status
+              </Button>
+            ) : null}
           </div>
 
           <div className="grid gap-6 lg:grid-cols-2">
@@ -141,7 +157,7 @@ export default function OrderDetail() {
             <CardHeader>
               <CardTitle className="flex items-center gap-2 text-base">
                 <Package className="h-4 w-4" />
-                Line items (your products)
+                {isSuperAdmin ? 'Line items' : 'Line items (your products)'}
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-6">
@@ -212,14 +228,16 @@ export default function OrderDetail() {
             </CardHeader>
             <CardContent className="space-y-2 text-sm">
               <div className="flex justify-between">
-                <span className="text-muted-foreground">Your lines (subtotal)</span>
+                <span className="text-muted-foreground">
+                  {isSuperAdmin ? 'Items subtotal' : 'Your lines (subtotal)'}
+                </span>
                 <span className="font-medium">{formatMoney(order.myTotal)}</span>
               </div>
               <div className="flex justify-between">
                 <span className="text-muted-foreground">Full order total</span>
                 <span className="font-semibold">{formatMoney(order.orderTotal)}</span>
               </div>
-              {order.orderTotal !== order.myTotal ? (
+              {!isSuperAdmin && order.orderTotal !== order.myTotal ? (
                 <p className="text-xs text-muted-foreground">
                   Full order may include other sellers’ products or fees not shown in your lines.
                 </p>
@@ -229,7 +247,7 @@ export default function OrderDetail() {
         </div>
       ) : null}
 
-      {order ? (
+      {order && !isSuperAdmin ? (
         <OrderStatusModal
           open={statusOpen}
           onOpenChange={setStatusOpen}
