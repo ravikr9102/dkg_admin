@@ -421,7 +421,9 @@ export async function superAdminAddHeroBanner(body: {
     | "wedding_extra"
     | "romantic_couple"
     | "kids"
-    | "occasion";
+    | "occasion"
+    | "birthday_level_up"
+    | "birthday_extra_special";
   sortOrder?: number;
   title?: string;
 }) {

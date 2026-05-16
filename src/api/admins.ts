@@ -203,7 +203,9 @@ export async function addHeroBanner(body: {
     | "wedding_extra"
     | "romantic_couple"
     | "kids"
-    | "occasion";
+    | "occasion"
+    | "birthday_level_up"
+    | "birthday_extra_special";
   sortOrder?: number;
   /** Optional label on festival / wedding hub cards (guest falls back to category name). */
   title?: string;

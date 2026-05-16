@@ -32,7 +32,9 @@ type Placement =
   | 'wedding_extra'
   | 'romantic_couple'
   | 'kids'
-  | 'occasion';
+  | 'occasion'
+  | 'birthday_level_up'
+  | 'birthday_extra_special';
 
 export default function HeroBanners() {
   const { isVendorAdmin, isSuperAdmin } = useAuth();
@@ -151,7 +153,7 @@ export default function HeroBanners() {
         description={
           isSuperAdmin
             ? 'Super admin: same CMS banners as vendors — including Wedding page sections (Make Your’s Wedding Extra Special, Romantic Couple Experience). Link each image to a sub- or third-category by exact name.'
-            : 'Upload images for the top hero carousel, home festival strip, /festival hub, /wedding hub, or Kids / Occasion sections. Each banner links to one sub- or third-category (exact name).'
+            : 'Upload images for the top hero carousel, home festival strip, /festival hub, /wedding hub, Kids / Occasion, or birthday home sections (Level up your birthday party, Make your birthday extra special). Each banner links to one sub- or third-category (exact name).'
         }
       />
 
@@ -193,6 +195,12 @@ export default function HeroBanners() {
                       </SelectItem>
                       <SelectItem value="kids">Kids Decorations</SelectItem>
                       <SelectItem value="occasion">Make Every Occasion Extra Special</SelectItem>
+                      <SelectItem value="birthday_level_up">
+                        Level up your birthday party (home — Level Up section)
+                      </SelectItem>
+                      <SelectItem value="birthday_extra_special">
+                        Make your birthday extra special (home — Birthday carousel)
+                      </SelectItem>
                     </SelectContent>
                   </Select>
                   {placement === 'festival' && (
@@ -223,6 +231,20 @@ export default function HeroBanners() {
                     <p className="text-xs text-muted-foreground">
                       Shown in the &quot;Romantic Couple Experience&quot; section on <strong>/wedding</strong>. Link
                       each upload to a third sub-category; the layout uses up to four images.
+                    </p>
+                  )}
+                  {placement === 'birthday_level_up' && (
+                    <p className="text-xs text-muted-foreground">
+                      Shown on the guest <strong>home</strong> page in the &quot;Level up your birthday party&quot;
+                      block (wide banner / carousel above the package cards). Link each image to a sub- or
+                      third-category.
+                    </p>
+                  )}
+                  {placement === 'birthday_extra_special' && (
+                    <p className="text-xs text-muted-foreground">
+                      Shown on the guest <strong>home</strong> page in the &quot;Make your birthday extra
+                      special&quot; horizontal cards. Use third sub-categories for best labels; sort order controls
+                      card sequence.
                     </p>
                   )}
                 </div>
