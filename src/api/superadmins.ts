@@ -502,3 +502,36 @@ export async function getSuperAdminOrder(orderId: string) {
     { method: "GET" }
   );
 }
+
+export type CorporateBookingStatus = "new" | "contacted" | "closed";
+
+export type ApiCorporateBooking = {
+  _id: string;
+  name: string;
+  email: string;
+  phone: string;
+  serviceType: string;
+  message?: string;
+  status: CorporateBookingStatus;
+  createdAt: string;
+  updatedAt?: string;
+};
+
+export async function getSuperAdminCorporateBookings() {
+  return apiFetch<{ bookings: ApiCorporateBooking[] }>(`${S}/corporate-bookings`, {
+    method: "GET",
+  });
+}
+
+export async function updateSuperAdminCorporateBookingStatus(
+  contactId: string,
+  status: CorporateBookingStatus
+) {
+  return apiFetch<{ message: string; booking: ApiCorporateBooking }>(
+    `${S}/corporate-bookings/${encodeURIComponent(contactId)}/status`,
+    {
+      method: "PATCH",
+      body: JSON.stringify({ status }),
+    }
+  );
+}

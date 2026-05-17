@@ -752,3 +752,29 @@ export async function createVenue(body: CreateVenueBody) {
     body: fd,
   });
 }
+
+export type {
+  CorporateBookingStatus,
+  ApiCorporateBooking,
+} from "@/api/superadmins";
+
+import type { ApiCorporateBooking, CorporateBookingStatus } from "@/api/superadmins";
+
+export async function getAdminCorporateBookings() {
+  return apiFetch<{ bookings: ApiCorporateBooking[] }>(`${A}/corporate-bookings`, {
+    method: "GET",
+  });
+}
+
+export async function updateAdminCorporateBookingStatus(
+  contactId: string,
+  status: CorporateBookingStatus
+) {
+  return apiFetch<{ message: string; booking: ApiCorporateBooking }>(
+    `${A}/corporate-bookings/${encodeURIComponent(contactId)}/status`,
+    {
+      method: "PATCH",
+      body: JSON.stringify({ status }),
+    }
+  );
+}

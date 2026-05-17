@@ -19,6 +19,7 @@ import {
   List,
   Building2,
   ImageIcon,
+  Briefcase,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/contexts/AuthContext';
@@ -74,6 +75,7 @@ const navItems: NavItem[] = [
   },
   { label: 'Users', icon: Users, href: '/users' },
   { label: 'Orders', icon: ShoppingCart, href: '/orders' },
+  { label: 'Corporate bookings', icon: Briefcase, href: '/corporate-bookings' },
   { label: 'Billing System', icon: FileText, href: '/billing' },
   { label: 'Analytics', icon: BarChart3, href: '/analytics' },
 ];
@@ -118,6 +120,7 @@ export function AppSidebar() {
       },
       { label: 'Users', icon: Users, href: '/users' },
       { label: 'Orders', icon: ShoppingCart, href: '/orders' },
+      { label: 'Corporate bookings', icon: Briefcase, href: '/corporate-bookings' },
     ] as NavItem[];
   }, [isSuperAdmin]);
 

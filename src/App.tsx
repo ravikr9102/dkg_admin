@@ -23,6 +23,7 @@ import Orders from "./pages/Orders";
 import OrderDetail from "./pages/OrderDetail";
 import Billing from "./pages/Billing";
 import Analytics from "./pages/Analytics";
+import CorporateBookings from "./pages/CorporateBookings";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -63,6 +64,7 @@ const App = () => (
               <Route path="/blogs/add" element={<Blogs />} />
               <Route path="/orders" element={<Orders />} />
               <Route path="/orders/:orderId" element={<OrderDetail />} />
+              <Route path="/corporate-bookings" element={<CorporateBookings />} />
               <Route element={<VendorOnlyRoute />}>
                 <Route path="/billing" element={<Billing />} />
                 <Route path="/analytics" element={<Analytics />} />
