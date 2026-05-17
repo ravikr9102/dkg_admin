@@ -34,7 +34,10 @@ type Placement =
   | 'kids'
   | 'occasion'
   | 'birthday_level_up'
-  | 'birthday_extra_special';
+  | 'birthday_extra_special'
+  | 'corporate_hero'
+  | 'corporate_gallery'
+  | 'corporate_gifting';
 
 export default function HeroBanners() {
   const { isVendorAdmin, isSuperAdmin } = useAuth();
@@ -201,6 +204,15 @@ export default function HeroBanners() {
                       <SelectItem value="birthday_extra_special">
                         Make your birthday extra special (home — Birthday carousel)
                       </SelectItem>
+                      <SelectItem value="corporate_hero">
+                        Corporate events — hero (/corporate-events)
+                      </SelectItem>
+                      <SelectItem value="corporate_gallery">
+                        Corporate events — gallery (/corporate-events)
+                      </SelectItem>
+                      <SelectItem value="corporate_gifting">
+                        Corporate events — gifting carousel (/corporate-events)
+                      </SelectItem>
                     </SelectContent>
                   </Select>
                   {placement === 'festival' && (
@@ -235,9 +247,9 @@ export default function HeroBanners() {
                   )}
                   {placement === 'birthday_level_up' && (
                     <p className="text-xs text-muted-foreground">
-                      Shown on the guest <strong>home</strong> page in the &quot;Level up your birthday party&quot;
-                      block (wide banner / carousel above the package cards). Link each image to a sub- or
-                      third-category.
+                      Shown on the guest <strong>home</strong> page in &quot;Level up your birthday party&quot;.
+                      Lowest <strong>sort order</strong> = one full-width banner on top; each additional upload
+                      appears below as an alternating card (text/image zig-zag), not a side-by-side carousel.
                     </p>
                   )}
                   {placement === 'birthday_extra_special' && (
@@ -245,6 +257,21 @@ export default function HeroBanners() {
                       Shown on the guest <strong>home</strong> page in the &quot;Make your birthday extra
                       special&quot; horizontal cards. Use third sub-categories for best labels; sort order controls
                       card sequence.
+                    </p>
+                  )}
+                  {placement === 'corporate_hero' && (
+                    <p className="text-xs text-muted-foreground">
+                      Top hero on <strong>/corporate-events</strong>. Optional title overrides the default heading.
+                    </p>
+                  )}
+                  {placement === 'corporate_gallery' && (
+                    <p className="text-xs text-muted-foreground">
+                      Images in the &quot;Our Gallery&quot; section on <strong>/corporate-events</strong>.
+                    </p>
+                  )}
+                  {placement === 'corporate_gifting' && (
+                    <p className="text-xs text-muted-foreground">
+                      Carousel in the corporate gifting block on <strong>/corporate-events</strong>.
                     </p>
                   )}
                 </div>
